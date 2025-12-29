@@ -48,20 +48,15 @@ blueprint:
     notification_message:
       name: Notification Message
       default: Human body detected
-      selector:
-        text: {}
+      selector: { text: {} }
 
     notification_image:
       name: Notification Image URL
       default: ''
-      selector:
-        text: {}
+      selector: { text: {} }
 
     notify_action:
       name: Notify Action
-      description: >
-        Notification action. You can use {{ _notify_title }},
-        {{ _notify_message }}, and {{ _notify_image }}.
       selector:
         action: {}
 
@@ -116,8 +111,13 @@ action:
       topic: "{{ _mqtt_base.rstrip('/') ~ '/' ~ _source_id ~ '/image' }}"
       qos: 1
       retain: false
-      payload_json:
-        image_b64: '{{ readfile(_snapshot_path) | b64encode }}'
-        device: '{{ _source_id }}'
+      payload: >-
+        {{
+          '{"image_b64":"'
+          ~ (readfile(_snapshot_path) | b64encode)
+          ~ '","device":"'
+          ~ _source_id
+          ~ '"}'
+        }}
 
   - !input notify_action
