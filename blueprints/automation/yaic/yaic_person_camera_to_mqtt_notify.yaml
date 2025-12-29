@@ -113,11 +113,11 @@ action:
       filename: "{{ _snapshot_path }}"
 
   - service: mqtt.publish
-    data_template:
+    data:
       topic: "{{ _mqtt_base.rstrip('/') ~ '/' ~ _source_id ~ '/image' }}"
       qos: 1
       retain: false
-      payload: >-
+      payload_template: >-
         {{
           dict(
             image_b64 = readfile(_snapshot_path) | b64encode | string,
