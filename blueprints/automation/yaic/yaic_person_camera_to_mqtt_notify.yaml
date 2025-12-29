@@ -1,60 +1,63 @@
 blueprint:
-  name: YAIC Person Snapshot to MQTT + Notify
+  name: YAIC Person Snapshot to MQTT + Notify (2024.8+)
   description: >-
-    When a camera event indicates a person, take a snapshot, publish it to YAIC
-    MQTT input, then send a notification.
+    On person event: take snapshot, publish to YAIC MQTT, send notification.
   domain: automation
+
   input:
     trigger_event_entity:
       name: Event Entity
-      description: Event entity that fires with a JSON message payload.
       selector:
         entity:
           domain: event
+
     trigger_cmd:
       name: Command Filter
-      description: Only continue when the event message JSON has this cmd.
       default: ipc_human
       selector:
         text: {}
+
     camera_entity:
       name: Camera Entity
       selector:
         entity:
           domain: camera
+
     source_id:
       name: YAIC Source ID
-      description: Used in the MQTT topic yaic/input/<source_id>/image.
       selector:
         text: {}
+
     snapshot_path:
       name: Snapshot File Path
-      description: Path for camera.snapshot (should be under /config/www/ for /local access).
       default: /config/www/yaic_latest.jpg
       selector:
         text: {}
+
     mqtt_topic_base:
       name: MQTT Topic Base
-      description: Base MQTT topic for YAIC input.
       default: yaic/input
       selector:
         text: {}
-    notification_message:
-      name: Notification Message
-      default: Human Body detected
-      selector:
-        text: {}
+
     notification_title:
       name: Notification Title
       default: YAIC
       selector:
         text: {}
+
+    notification_message:
+      name: Notification Message
+      default: Human body detected
+      selector:
+        text: {}
+
     notification_image:
       name: Notification Image URL
-      description: Optional /local/... URL. Leave blank to derive from snapshot_path.
       default: ""
       selector:
         text: {}
+
     notify_action:
       name: Notify Action
       description: >-
@@ -63,18 +66,30 @@ blueprint:
       selector:
         action: {}
 
-mode: single
+mode: queued
+max: 5
 
 variables:
-  _message_json: >-
-    {{ trigger.to_state.attributes.message | default('{}') | from_json }}
   _snapshot_path: !input snapshot_path
+  _source_id: !input source_id
+  _mqtt_base: !input mqtt_topic_base
   _notify_title: !input notification_title
   _notify_message: !input notification_message
+  _custom_image: !input notification_image
+
+  _message_json: >-
+    {{
+      (
+        trigger.event.data.new_state.attributes.message
+        if trigger.event.data.new_state
+        and trigger.event.data.new_state.attributes.message is defined
+        else '{}'
+      ) | from_json
+    }}
+
   _notify_image: >-
-    {% set custom = (notification_image | string).strip() %}
-    {% if custom %}
-      {{ custom }}
+    {% if _custom_image | trim %}
+      {{ _custom_image }}
     {% elif _snapshot_path.startswith('/config/www/') %}
       {{ '/local/' ~ _snapshot_path[13:] }}
     {% else %}
@@ -82,25 +97,36 @@ variables:
     {% endif %}
 
 trigger:
-  - platform: state
-    entity_id: !input trigger_event_entity
+  - platform: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input trigger_event_entity
 
 condition:
   - condition: template
-    value_template: >-
-      {{ _message_json.cmd == (trigger_cmd | string) }}
+    value_template: "{{ _message_json.get('cmd') == trigger_cmd }}"
 
 action:
-  - service: camera.snapshot
+  - action: camera.snapshot
     data:
       entity_id: !input camera_entity
-      filename: !input snapshot_path
+      filename: "{{ _snapshot_path }}"
 
-  - service: mqtt.publish
-    data_template:
-      topic: >-
-        {{ (mqtt_topic_base | string).rstrip('/') ~ '/' ~ (source_id | string) ~ '/image' }}
+  - wait_template: "{{ _snapshot_path is file }}"
+    timeout: "00:00:05"
+    continue_on_timeout: false
+
+  - action: mqtt.publish
+    data:
+      topic: "{{ _mqtt_base.rstrip('/') ~ '/' ~ _source_id ~ '/image' }}"
+      qos: 1
+      retain: false
       payload: >-
-        {{ '{"image_b64": "' ~ (readfile(_snapshot_path) | b64encode | string) ~ '", "device": "' ~ (source_id | string) ~ '"}' }}
+        {{
+          dict(
+            image_b64 = readfile(_snapshot_path) | b64encode,
+            device = _source_id
+          ) | tojson
+        }}
 
   - !input notify_action
