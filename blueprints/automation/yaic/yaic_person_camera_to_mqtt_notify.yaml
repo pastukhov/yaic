@@ -1,6 +1,6 @@
 blueprint:
   name: YAIC Person Snapshot to MQTT + Notify (2024.8+)
-  description: >-
+  description: >
     On person event: take snapshot, publish to YAIC MQTT, send notification.
   domain: automation
   input:
@@ -59,9 +59,9 @@ blueprint:
 
     notify_action:
       name: Notify Action
-      description: >-
-        Notification action. You can use {{ _notify_title }}, {{ _notify_message }},
-        and {{ _notify_image }} in the action data.
+      description: >
+        Notification action. You can use {{ _notify_title }},
+        {{ _notify_message }}, and {{ _notify_image }}.
       selector:
         action: {}
 
@@ -111,7 +111,7 @@ action:
       entity_id: !input camera_entity
       filename: '{{ _snapshot_path }}'
 
-  - service: mqtt.publish
+  - action: mqtt.publish
     data:
       topic: "{{ _mqtt_base.rstrip('/') ~ '/' ~ _source_id ~ '/image' }}"
       qos: 1
