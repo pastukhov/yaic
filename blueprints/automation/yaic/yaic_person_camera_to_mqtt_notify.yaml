@@ -107,20 +107,20 @@ condition:
     value_template: "{{ _message_json.get('cmd') == trigger_cmd }}"
 
 action:
-  - action: camera.snapshot
+  - service: camera.snapshot
     data:
       entity_id: !input camera_entity
       filename: "{{ _snapshot_path }}"
 
-  - action: mqtt.publish
-    data:
+  - service: mqtt.publish
+    data_template:
       topic: "{{ _mqtt_base.rstrip('/') ~ '/' ~ _source_id ~ '/image' }}"
       qos: 1
       retain: false
       payload: >-
         {{
           dict(
-            image_b64 = readfile(_snapshot_path) | b64encode,
+            image_b64 = readfile(_snapshot_path) | b64encode | string,
             device = _source_id
           ) | tojson
         }}
