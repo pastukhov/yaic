@@ -97,7 +97,7 @@ action:
       filename: !input snapshot_path
 
   - service: mqtt.publish
-    data:
+    data_template:
       topic: >-
         {{ (mqtt_topic_base | string).rstrip('/') ~ '/' ~ (source_id | string) ~ '/image' }}
       payload: >-
