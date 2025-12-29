@@ -3,7 +3,6 @@ blueprint:
   description: >-
     On person event: take snapshot, publish to YAIC MQTT, send notification.
   domain: automation
-
   input:
     trigger_event_entity:
       name: Event Entity
@@ -54,7 +53,7 @@ blueprint:
 
     notification_image:
       name: Notification Image URL
-      default: ""
+      default: ''
       selector:
         text: {}
 
@@ -107,22 +106,18 @@ condition:
     value_template: "{{ _message_json.get('cmd') == trigger_cmd }}"
 
 action:
-  - service: camera.snapshot
+  - action: camera.snapshot
     data:
       entity_id: !input camera_entity
-      filename: "{{ _snapshot_path }}"
+      filename: '{{ _snapshot_path }}'
 
   - service: mqtt.publish
     data:
       topic: "{{ _mqtt_base.rstrip('/') ~ '/' ~ _source_id ~ '/image' }}"
       qos: 1
       retain: false
-      payload_template: >-
-        {{
-          dict(
-            image_b64 = readfile(_snapshot_path) | b64encode | string,
-            device = _source_id
-          ) | tojson
-        }}
+      payload_json:
+        image_b64: '{{ readfile(_snapshot_path) | b64encode }}'
+        device: '{{ _source_id }}'
 
   - !input notify_action
