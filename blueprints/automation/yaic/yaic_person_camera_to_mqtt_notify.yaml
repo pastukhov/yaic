@@ -103,7 +103,7 @@ action:
       payload: >-
         {{
           {
-            'image_b64': readfile(_snapshot_path) | b64encode,
+            'image_b64': readfile(_snapshot_path) | b64encode | string,
             'device': source_id
           } | to_json
         }}
