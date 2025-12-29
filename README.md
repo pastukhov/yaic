@@ -20,6 +20,8 @@ Set required environment variables and start:
 export MQTT_HOST=localhost
 export MQTT_TOPIC_IN=yaic/in
 export MQTT_TOPIC_OUT=yaic/out
+export MQTT_TOPIC_STATUS=yaic/status
+export MQTT_TOPIC_LOG=yaic/log
 export QWEN_API_KEY=your-key
 export QWEN_ENDPOINT=https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
 export QWEN_MODEL=qwen-vl-plus
@@ -41,6 +43,22 @@ Or build/push the image name used by this project:
 docker build -t pastukhov/yaic:latest .
 ```
 
+## systemd
+
+Install and run the unit:
+
+```bash
+sudo cp yaic-compose.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now yaic-compose
+```
+
+Inspect logs:
+
+```bash
+journalctl -u yaic-compose -f
+```
+
 ## Environment variables
 
 | Variable | Description | Required |
@@ -49,6 +67,8 @@ docker build -t pastukhov/yaic:latest .
 | MQTT_PORT | broker port (default 1883) | no |
 | MQTT_TOPIC_IN | input topic | yes |
 | MQTT_TOPIC_OUT | output topic | yes |
+| MQTT_TOPIC_STATUS | status topic prefix | yes |
+| MQTT_TOPIC_LOG | log topic | yes |
 | QWEN_API_KEY | Qwen API key | yes |
 | QWEN_ENDPOINT | OpenAI-compatible DashScope endpoint | yes |
 | QWEN_MODEL | Qwen model name (default `qwen-vl-plus`) | no |
@@ -105,19 +125,42 @@ If no people are present, the payload includes `person.count` set to 0:
 
 Discovery topics are published on startup with retain/QoS 1 and include:
 
-- `homeassistant/sensor/yaic_classification/config`
-- `homeassistant/sensor/yaic_confidence/config`
-- `homeassistant/sensor/yaic_people_count/config`
-- `homeassistant/sensor/yaic_people_description/config`
-- `homeassistant/sensor/yaic_people_age/config`
-- `homeassistant/sensor/yaic_people_gender/config`
-- `homeassistant/sensor/yaic_people_roles/config`
-- `homeassistant/binary_sensor/yaic_person_detected/config`
-- `homeassistant/camera/yaic_last_image/config`
-- `homeassistant/event/yaic_event/config`
+- `homeassistant/sensor/yaic_<source_id>_classification/config`
+- `homeassistant/sensor/yaic_<source_id>_confidence/config`
+- `homeassistant/sensor/yaic_<source_id>_people_count/config`
+- `homeassistant/sensor/yaic_<source_id>_people_description/config`
+- `homeassistant/sensor/yaic_<source_id>_people_age/config`
+- `homeassistant/sensor/yaic_<source_id>_people_gender/config`
+- `homeassistant/sensor/yaic_<source_id>_people_roles/config`
+- `homeassistant/binary_sensor/yaic_<source_id>_person_detected/config`
+- `homeassistant/camera/yaic_<source_id>_last_image/config`
+- `homeassistant/event/yaic_<source_id>_event/config`
 
-Camera publishes last image to `yaic/image/last` with retain enabled.
-Event payloads are published to `yaic/event` on every classification.
+Camera publishes last image to `yaic/image/<source_id>/last` with retain enabled.
+Event payloads are published to `yaic/event/<source_id>` on every classification.
+
+## Topics
+
+Multi-source topic structure:
+
+- Input: `yaic/input/<source_id>/image`
+- Output: `yaic/output/<source_id>/classification`
+- Last image: `yaic/image/<source_id>/last`
+- Event stream: `yaic/event/<source_id>`
+- Status: `yaic/status/<source_id>` (`online`/`offline` with retain)
+- Operation status: `yaic/status/<source_id>/operation` (JSON with status and timestamp)
+- Logs: `yaic/log` (JSON log records)
+
+Incoming payloads include `device`/`source_id`; outgoing payloads include `source_id`.
+
+## Home Assistant Blueprint
+
+Blueprint to snapshot a camera, publish it to YAIC, and send notifications:
+
+- `blueprints/automation/yaic/yaic_person_camera_to_mqtt_notify.yaml`
+
+It snapshots the selected camera, base64 encodes the image, publishes to the YAIC
+input topic, and notifies selected targets.
 
 Event payload example:
 

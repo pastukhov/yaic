@@ -1,0 +1,17 @@
+[Unit]
+Description=YAIC docker compose stack
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/yaic
+ExecStart=/usr/bin/docker compose -f /opt/yaic/docker-compose.yaml up
+ExecStop=/usr/bin/docker compose -f /opt/yaic/docker-compose.yaml down
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

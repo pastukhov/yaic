@@ -4,7 +4,8 @@
 - `yaic/` — application package (MQTT client, Qwen API client, processor, entry points).
 - `tests/` — pytest test suite (`test_*.py`).
 - `Dockerfile`, `docker-compose.yaml` — container build and local stack with Mosquitto.
-- `README.md`, `HA.md` — usage docs and integration notes.
+- `README.md` — usage docs and integration notes.
+- `yaic-compose.service` — systemd unit for running docker compose.
 
 ## Build, Test, and Development Commands
 - `poetry install` — install Python dependencies into the Poetry virtualenv.

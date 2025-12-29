@@ -39,12 +39,13 @@ blueprint:
       default: yaic/input
       selector:
         text: {}
-    notify_service:
-      name: Notify Service
-      description: Notification service to call (e.g. notify.mobile_app_phone).
+    notify_targets:
+      name: Notify Targets
+      description: Notification targets (mobile apps, notify services, etc.).
       selector:
-        service:
-          domain: notify
+        target:
+          entity:
+            domain: notify
     notification_message:
       name: Notification Message
       default: Human Body detected
@@ -111,14 +112,16 @@ action:
             value_template: >-
               {{ _notify_image | length > 0 }}
         sequence:
-          - service: !input notify_service
+          - service: notify.notify
+            target: !input notify_targets
             data:
               title: !input notification_title
               message: !input notification_message
               data:
                 image: "{{ _notify_image }}"
     default:
-      - service: !input notify_service
+      - service: notify.notify
+        target: !input notify_targets
         data:
           title: !input notification_title
           message: !input notification_message
