@@ -2,7 +2,7 @@
 name = "yaic"
 version = "0.1.0"
 description = "Yet Another Image Classifier"
-authors = ["Your Name <you@example.com>"]
+authors = ["Artem Pastukhov <artem.pastukhov@gmail.com>"]
 readme = "README.md"
 packages = [{ include = "yaic" }]
 
