@@ -101,11 +101,6 @@ action:
       topic: >-
         {{ (mqtt_topic_base | string).rstrip('/') ~ '/' ~ (source_id | string) ~ '/image' }}
       payload: >-
-        {{
-          {
-            'image_b64': readfile(_snapshot_path) | b64encode | string,
-            'device': source_id
-          } | to_json
-        }}
+        {{ '{"image_b64": "' ~ (readfile(_snapshot_path) | b64encode | string) ~ '", "device": "' ~ (source_id | string) ~ '"}' }}
 
   - !input notify_action
