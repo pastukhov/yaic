@@ -112,10 +112,6 @@ action:
       entity_id: !input camera_entity
       filename: "{{ _snapshot_path }}"
 
-  - wait_template: "{{ _snapshot_path is file }}"
-    timeout: "00:00:05"
-    continue_on_timeout: false
-
   - action: mqtt.publish
     data:
       topic: "{{ _mqtt_base.rstrip('/') ~ '/' ~ _source_id ~ '/image' }}"
