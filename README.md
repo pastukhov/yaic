@@ -162,6 +162,17 @@ Blueprint to snapshot a camera, publish it to YAIC, and send notifications:
 It snapshots the selected camera, base64 encodes the image, publishes to the YAIC
 input topic, and notifies selected targets.
 
+Example `notify_action` configuration:
+
+```yaml
+service: notify.mobile_app_pixel_7_pro
+data:
+  title: "{{ _notify_title }}"
+  message: "{{ _notify_message }}"
+  data:
+    image: "{{ _notify_image }}"
+```
+
 Event payload example:
 
 ```json

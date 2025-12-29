@@ -39,13 +39,6 @@ blueprint:
       default: yaic/input
       selector:
         text: {}
-    notify_targets:
-      name: Notify Targets
-      description: Notification targets (mobile apps, notify services, etc.).
-      selector:
-        target:
-          entity:
-            domain: notify
     notification_message:
       name: Notification Message
       default: Human Body detected
@@ -62,6 +55,13 @@ blueprint:
       default: ""
       selector:
         text: {}
+    notify_action:
+      name: Notify Action
+      description: >-
+        Notification action. You can use {{ _notify_title }}, {{ _notify_message }},
+        and {{ _notify_image }} in the action data.
+      selector:
+        action: {}
 
 mode: single
 
@@ -69,6 +69,8 @@ variables:
   _message_json: >-
     {{ trigger.to_state.attributes.message | default('{}') | from_json }}
   _snapshot_path: !input snapshot_path
+  _notify_title: !input notification_title
+  _notify_message: !input notification_message
   _notify_image: >-
     {% set custom = (notification_image | string).strip() %}
     {% if custom %}
@@ -106,22 +108,4 @@ action:
           } | to_json
         }}
 
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: >-
-              {{ _notify_image | length > 0 }}
-        sequence:
-          - service: notify.notify
-            target: !input notify_targets
-            data:
-              title: !input notification_title
-              message: !input notification_message
-              data:
-                image: "{{ _notify_image }}"
-    default:
-      - service: notify.notify
-        target: !input notify_targets
-        data:
-          title: !input notification_title
-          message: !input notification_message
+  - !input notify_action
