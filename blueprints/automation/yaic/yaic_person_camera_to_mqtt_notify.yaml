@@ -146,9 +146,11 @@ action:
       topic: '{{ _mqtt_base.rstrip("/") ~ "/" ~ _source_id ~ "/image" }}'
       qos: 1
       retain: false
-      payload_json:
-        image_b64: '{{ readfile(_snapshot_path) | b64encode }}'
-        device: '{{ _source_id }}'
+      payload: >
+        {{ {
+          "image_b64": (readfile(_snapshot_path) | b64encode),
+          "device": _source_id
+        } | tojson }}
 
   - wait_for_trigger:
       - platform: mqtt
