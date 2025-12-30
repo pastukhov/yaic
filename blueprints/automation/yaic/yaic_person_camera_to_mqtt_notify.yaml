@@ -1,7 +1,8 @@
 blueprint:
   name: YAIC Person Snapshot to MQTT + Notify (2024.8+)
   description: >
-    On person event: take snapshot, publish to YAIC MQTT, send notification.
+    On person event: take snapshot, wait briefly, publish to YAIC MQTT, wait for
+    classification, then send notification with the result and image.
   domain: automation
   input:
     trigger_event_entity:
@@ -32,12 +33,37 @@ blueprint:
       default: /config/www/yaic_latest.jpg
       selector:
         text: {}
+    snapshot_wait_seconds:
+      name: Snapshot Wait Seconds
+      description: Delay after snapshot before reading file.
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 10
+          step: 1
+          unit_of_measurement: s
 
     mqtt_topic_base:
       name: MQTT Topic Base
       default: yaic/input
       selector:
         text: {}
+    mqtt_result_base:
+      name: MQTT Result Base
+      description: Base MQTT topic for YAIC results.
+      default: yaic/output
+      selector:
+        text: {}
+    response_timeout_seconds:
+      name: Response Timeout Seconds
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 60
+          step: 1
+          unit_of_measurement: s
 
     notification_title:
       name: Notification Title
@@ -57,6 +83,9 @@ blueprint:
 
     notify_action:
       name: Notify Action
+      description: >-
+        Use {{ _notify_title }}, {{ _notify_message }}, {{ _notify_image }},
+        or {{ _result_text }} in the action data.
       selector:
         action: {}
 
@@ -65,8 +94,10 @@ max: 5
 
 variables:
   _snapshot_path: !input snapshot_path
+  _snapshot_wait: !input snapshot_wait_seconds
   _source_id: !input source_id
   _mqtt_base: !input mqtt_topic_base
+  _mqtt_result_base: !input mqtt_result_base
   _notify_title: !input notification_title
   _notify_message: !input notification_message
   _custom_image: !input notification_image
@@ -89,6 +120,8 @@ variables:
     {% else %}
       {{ '' }}
     {% endif %}
+  _result_topic: >-
+    {{ _mqtt_result_base.rstrip('/') ~ '/' ~ _source_id ~ '/classification' }}
 
 trigger:
   - platform: event
@@ -106,18 +139,29 @@ action:
       entity_id: !input camera_entity
       filename: '{{ _snapshot_path }}'
 
+  - delay: '{{ _snapshot_wait | int }}'
+
   - action: mqtt.publish
     data:
-      topic: "{{ _mqtt_base.rstrip('/') ~ '/' ~ _source_id ~ '/image' }}"
+      topic: '{{ _mqtt_base.rstrip("/") ~ "/" ~ _source_id ~ "/image" }}'
       qos: 1
       retain: false
-      payload: >-
-        {{
-          '{"image_b64":"'
-          ~ (readfile(_snapshot_path) | b64encode)
-          ~ '","device":"'
-          ~ _source_id
-          ~ '"}'
-        }}
+      payload_json:
+        image_b64: '{{ readfile(_snapshot_path) | b64encode }}'
+        device: '{{ _source_id }}'
+
+  - wait_for_trigger:
+      - platform: mqtt
+        topic: '{{ _result_topic }}'
+    timeout:
+      seconds: !input response_timeout_seconds
+    continue_on_timeout: true
+
+  - variables:
+      _result_payload: '{{ wait.trigger.payload_json if wait.trigger is defined else {} }}'
+      _result_label: '{{ _result_payload.label | default("unknown") }}'
+      _result_confidence: '{{ _result_payload.confidence | default(0) }}'
+      _result_text: >-
+        {{ _result_label }} ({{ _result_confidence | float | round(2) }})
 
   - !input notify_action
