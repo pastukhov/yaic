@@ -136,7 +136,7 @@ def test_post_image_includes_temperature(monkeypatch):
     assert captured["json"]["temperature"] == 0.25
     image_url = captured["json"]["messages"][0]["content"][0]["image_url"]["url"]
     assert isinstance(image_url, str)
-    assert not image_url.startswith("data:")
+    assert image_url.startswith("data:image/")
 
 
 def test_post_image_sends_x_title_header(monkeypatch):

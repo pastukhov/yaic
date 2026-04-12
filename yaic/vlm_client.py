@@ -107,9 +107,7 @@ class VlmClient:
     def _post_image(self, image_bytes: bytes, prompt: str | None) -> dict[str, Any]:
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         prompt_text = prompt or self._default_prompt()
-        # Some local OpenAI-compatible backends expect raw base64 in image_url.url
-        # and return empty content for data URLs.
-        image_url = image_b64
+        image_url = _image_data_url(image_bytes, image_b64)
 
         headers = {
             "Authorization": f"Bearer {self._api_key}",

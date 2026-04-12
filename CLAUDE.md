@@ -6,14 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 poetry install              # install dependencies
-/home/artem/repos/yaic/.venv/bin/python -m pytest           # run all tests (shebang in venv is broken)
-/home/artem/repos/yaic/.venv/bin/python -m pytest tests/test_vlm_client.py  # run a single test file
-/home/artem/repos/yaic/.venv/bin/python -m pytest -k "test_name"            # run a single test by name
-poetry run yaic             # run the service (requires env vars)
-docker compose up --build   # run full stack with Mosquitto
+.venv/bin/python -m pytest                          # run all tests
+.venv/bin/python -m pytest tests/test_vlm_client.py # run a single test file
+.venv/bin/python -m pytest -k "test_name"            # run a single test by name
+docker compose up --build                            # run full stack with Mosquitto (YAIC + broker)
+.venv/bin/python tools/e2e_photo_to_description.py   # run e2e scenario (requires running stack)
 ```
 
-The virtualenv must live in `.venv`. The shebang inside `.venv/bin/pytest` is broken (points to old path), so always invoke pytest via `python -m pytest`. There is no linter configured; the project has no `ruff`, `mypy`, or similar tool in `pyproject.toml`.
+The virtualenv must live in `.venv`. The shebang inside `.venv/bin/pytest` is broken (points to old path), so always invoke pytest via `.venv/bin/python -m pytest`. There is no linter configured; the project has no `ruff`, `mypy`, or similar tool in `pyproject.toml`.
 
 ## Architecture
 
@@ -25,14 +25,14 @@ YAIC is a single-process service that subscribes to MQTT, classifies images via 
 MQTT broker
   → MqttClient._on_message()         (mqtt_client.py)
   → Processor.process_message()       (processor.py)
-  → QwenClient.classify_image()       (qwen_client.py)  ← HTTP to VLM API
+  → VlmClient.classify_image()        (vlm_client.py)  ← HTTP to VLM API
   ← ClassificationResult
   → publish to output/image/event topics
 ```
 
 **Key design points:**
 
-- `VlmClient` (`vlm_client.py`) speaks OpenAI-compatible chat completions. It sends raw base64 (not a data URL) in `image_url.url` because some local backends reject data URLs. If the first response has label `"person"` but no person details, a second request is made with a dedicated detail prompt. All API coupling is isolated here. Default endpoint is OpenRouter (`OPENROUTER_ENDPOINT`), default model is `openrouter/auto` (`DEFAULT_MODEL`) — OpenRouter selects the best available vision model automatically.
+- `VlmClient` (`vlm_client.py`) speaks OpenAI-compatible chat completions. It sends images as data URLs (`data:image/jpeg;base64,...`) in `image_url.url`. If the first response has label `"person"` but no person details, a second request is made with a dedicated detail prompt. All API coupling is isolated here. Default endpoint is OpenRouter (`OPENROUTER_ENDPOINT`), default model is `openrouter/auto` (`DEFAULT_MODEL`) — OpenRouter selects the best available vision model automatically.
 - `VlmClient._post_image` retries on network errors with exponential backoff. On HTTP 400 it silently retries without `response_format` (some backends reject it). Responses may contain `<think>...</think>` blocks or markdown fences — these are stripped before JSON parsing; `_recover_json_payload` is the last-resort regex fallback.
 - `Processor` is a thin orchestration layer: extracts image bytes from raw binary or JSON-wrapped (`{"image_b64": ..., "device": ...}`) MQTT payloads, calls `VlmClient`, and packages the result.
 - `MqttClient` manages broker lifecycle (auto-reconnect, SIGTERM/SIGINT), dispatches messages, publishes classification results to `yaic/output/<source_id>/classification`, the last image to `yaic/image/<source_id>/last` (retained), and an event to `yaic/event/<source_id>`. Logs are streamed to MQTT via `_MqttLogHandler`. It also subscribes to `<status_prefix>/+` so registering a device from its status topic triggers HA discovery without needing to classify an image first.
