@@ -76,20 +76,29 @@ class MqttClient:
             return
 
         self._register_source(source_id)
+        logger.info("Processing image from source=%s bytes=%d", source_id, len(msg.payload))
         try:
             self._publish_operation_status(source_id, "processing")
             result = self._processor.process_message(msg.payload, source_id)
         except Exception:
-            logger.exception("Failed to process MQTT message")
+            logger.exception("Failed to process MQTT message from source=%s", source_id)
             self._publish_operation_status(source_id, "error")
             return
 
         try:
             payload = json.dumps(result.payload, separators=(",", ":"))
         except (TypeError, ValueError):
-            logger.exception("Failed to serialize output JSON")
+            logger.exception("Failed to serialize output JSON for source=%s", source_id)
             self._publish_operation_status(source_id, "error")
             return
+
+        label = result.payload.get("label", "unknown")
+        confidence = result.payload.get("confidence", 0.0)
+        person_count = result.payload.get("person", {}).get("count", 0)
+        logger.info(
+            "Classified source=%s label=%s confidence=%.2f people=%d",
+            source_id, label, confidence, person_count,
+        )
 
         client.publish(build_output_topic(self._config, source_id), payload=payload, qos=1)
         client.publish(build_image_topic(source_id), payload=result.image_bytes, qos=1, retain=True)
