@@ -1,18 +1,10 @@
-version: "3.8"
-
 services:
-  mqtt:
-    image: eclipse-mosquitto:2
-    ports:
-      - "1883:1883"
   yaic:
     build: .
-    depends_on:
-      - mqtt
     env_file:
       - .env
     environment:
-      MQTT_HOST: ${MQTT_HOST:-mqtt}
+      MQTT_HOST: ${MQTT_HOST}
       MQTT_PORT: ${MQTT_PORT:-1883}
       MQTT_TOPIC_IN: ${MQTT_TOPIC_IN:-yaic/input/+/image}
       MQTT_TOPIC_OUT: ${MQTT_TOPIC_OUT:-yaic/output}
@@ -25,3 +17,4 @@ services:
       YAIC_INFERENCE_TIMEOUT: ${YAIC_INFERENCE_TIMEOUT:-60}
       YAIC_INFERENCE_TEMPERATURE: ${YAIC_INFERENCE_TEMPERATURE:-0.1}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    restart: unless-stopped

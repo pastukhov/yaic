@@ -9,7 +9,8 @@ poetry install              # install dependencies
 .venv/bin/python -m pytest                          # run all tests
 .venv/bin/python -m pytest tests/test_vlm_client.py # run a single test file
 .venv/bin/python -m pytest -k "test_name"            # run a single test by name
-docker compose up --build                            # run full stack with Mosquitto (YAIC + broker)
+docker compose up --build                                                        # prod: external MQTT from .env
+docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up --build     # dev: includes local Mosquitto (YAIC + broker)
 .venv/bin/python tools/e2e_photo_to_description.py   # run e2e scenario (requires running stack)
 ```
 
