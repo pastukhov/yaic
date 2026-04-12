@@ -9,7 +9,7 @@ from importlib.metadata import PackageNotFoundError, version
 from .config import load_config
 from .mqtt_client import MqttClient
 from .processor import Processor
-from .qwen_client import QwenClient
+from .vlm_client import VlmClient
 
 
 class JsonFormatter(logging.Formatter):
@@ -38,15 +38,15 @@ def main() -> None:
     handler.setFormatter(JsonFormatter())
     logging.basicConfig(level=config.log_level, handlers=[handler])
 
-    qwen = QwenClient(
-        api_key=config.qwen_api_key,
-        endpoint=config.qwen_endpoint,
+    vlm = VlmClient(
+        api_key=config.vlm_api_key,
+        endpoint=config.vlm_endpoint,
         language=config.yaic_language,
-        model=config.qwen_model,
+        model=config.vlm_model,
         timeout=config.inference_timeout,
         temperature=config.inference_temperature,
     )
-    processor = Processor(qwen)
+    processor = Processor(vlm)
     client = MqttClient(config, processor, sw_version=_get_version())
 
     shutdown_event = threading.Event()

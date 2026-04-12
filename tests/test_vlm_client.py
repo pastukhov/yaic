@@ -1,7 +1,7 @@
 import json
 
-from yaic.qwen_client import (
-    QwenClient,
+from yaic.vlm_client import (
+    VlmClient,
     _detect_image_mime,
     _extract_json_object,
     _strip_json_fence,
@@ -10,7 +10,7 @@ from yaic.qwen_client import (
 
 
 def test_extract_content_json_from_list():
-    client = QwenClient(api_key="key", endpoint="http://example", language="en")
+    client = VlmClient(api_key="key", endpoint="http://example", language="en")
     data = {
         "choices": [
             {
@@ -27,7 +27,7 @@ def test_extract_content_json_from_list():
 
 
 def test_extract_content_json_from_string_fence():
-    client = QwenClient(api_key="key", endpoint="http://example", language="en")
+    client = VlmClient(api_key="key", endpoint="http://example", language="en")
     data = {
         "choices": [
             {
@@ -67,7 +67,7 @@ def test_extract_json_object_from_text():
 
 
 def test_extract_content_json_with_think_block():
-    client = QwenClient(api_key="key", endpoint="http://example", language="en")
+    client = VlmClient(api_key="key", endpoint="http://example", language="en")
     data = {
         "choices": [
             {
@@ -85,7 +85,7 @@ def test_extract_content_json_with_think_block():
 
 
 def test_extract_content_json_recovers_malformed_json():
-    client = QwenClient(api_key="key", endpoint="http://example", language="en")
+    client = VlmClient(api_key="key", endpoint="http://example", language="en")
     data = {
         "choices": [
             {
@@ -123,9 +123,9 @@ def test_post_image_includes_temperature(monkeypatch):
         captured["timeout"] = timeout
         return FakeResponse()
 
-    monkeypatch.setattr("yaic.qwen_client.requests.post", fake_post)
+    monkeypatch.setattr("yaic.vlm_client.requests.post", fake_post)
 
-    client = QwenClient(
+    client = VlmClient(
         api_key="key",
         endpoint="http://example",
         language="en",
@@ -137,6 +137,41 @@ def test_post_image_includes_temperature(monkeypatch):
     image_url = captured["json"]["messages"][0]["content"][0]["image_url"]["url"]
     assert isinstance(image_url, str)
     assert not image_url.startswith("data:")
+
+
+def test_post_image_sends_x_title_header(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "{\"label\":\"cat\"}"}}]}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        captured["headers"] = headers
+        return FakeResponse()
+
+    monkeypatch.setattr("yaic.vlm_client.requests.post", fake_post)
+
+    client = VlmClient(api_key="key", endpoint="http://example", language="en")
+    client._post_image(b"image-bytes", prompt="prompt")
+
+    assert captured["headers"].get("X-Title") == "YAIC"
+
+
+def test_default_prompt_no_think_prefix():
+    client = VlmClient(api_key="key", endpoint="http://example", language="en")
+    assert not client._default_prompt().startswith("/no_think")
+
+
+def test_detail_prompt_no_think_prefix():
+    client = VlmClient(api_key="key", endpoint="http://example", language="en")
+    assert not client._detail_prompt().startswith("/no_think")
 
 
 def test_detect_image_mime():

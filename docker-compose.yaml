@@ -18,8 +18,9 @@ services:
       MQTT_TOPIC_OUT: ${MQTT_TOPIC_OUT:-yaic/output}
       MQTT_TOPIC_STATUS: ${MQTT_TOPIC_STATUS:-yaic/status}
       MQTT_TOPIC_LOG: ${MQTT_TOPIC_LOG:-yaic/log}
-      QWEN_ENDPOINT: ${QWEN_ENDPOINT:-http://192.168.11.128:8000/v1/chat/completions}
-      QWEN_MODEL: ${QWEN_MODEL:-internvl3-1B-448-ax650}
+      VLM_API_KEY: ${VLM_API_KEY:-none}
+      VLM_ENDPOINT: ${VLM_ENDPOINT:-https://openrouter.ai/api/v1/chat/completions}
+      VLM_MODEL: ${VLM_MODEL:-openrouter/auto}
       YAIC_LANGUAGE: ${YAIC_LANGUAGE:-ru}
       YAIC_INFERENCE_TIMEOUT: ${YAIC_INFERENCE_TIMEOUT:-60}
       YAIC_INFERENCE_TEMPERATURE: ${YAIC_INFERENCE_TEMPERATURE:-0.1}

@@ -4,10 +4,10 @@ import json
 import pytest
 
 from yaic.processor import Processor
-from yaic.qwen_client import ClassificationResult, PersonDetail, PersonSummary, UNKNOWN
+from yaic.vlm_client import ClassificationResult, PersonDetail, PersonSummary, UNKNOWN
 
 
-class DummyQwen:
+class DummyVlm:
     def __init__(self, result: ClassificationResult) -> None:
         self.last_image = None
         self._result = result
@@ -30,7 +30,7 @@ def test_process_binary_payload():
             role_summary=None,
         ),
     )
-    qwen = DummyQwen(result)
+    qwen = DummyVlm(result)
     processor = Processor(qwen)
 
     payload = b"binary-image"
@@ -58,7 +58,7 @@ def test_process_json_payload_with_device():
             role_summary=UNKNOWN,
         ),
     )
-    qwen = DummyQwen(result)
+    qwen = DummyVlm(result)
     processor = Processor(qwen)
 
     image_bytes = b"image-data"
@@ -103,7 +103,7 @@ def test_process_json_missing_image_b64():
             role_summary=None,
         ),
     )
-    qwen = DummyQwen(result)
+    qwen = DummyVlm(result)
     processor = Processor(qwen)
 
     payload = b'{"device": "cam-2"}'

@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from .qwen_client import QwenClient, PersonDetail
+from .vlm_client import VlmClient, PersonDetail
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,8 @@ class ProcessingResult:
 
 
 class Processor:
-    def __init__(self, qwen_client: QwenClient) -> None:
-        self._qwen = qwen_client
+    def __init__(self, vlm_client: VlmClient) -> None:
+        self._qwen = vlm_client
 
     def process_message(self, payload: bytes, source_id: str) -> ProcessingResult:
         image_bytes, device = self._extract_image(payload)

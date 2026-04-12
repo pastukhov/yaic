@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 UNKNOWN = "unknown"
 
+OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_MODEL = "openrouter/auto"
+
 
 @dataclass(frozen=True)
 class PersonDetail:
@@ -68,13 +71,13 @@ class ClassificationResult:
         }
 
 
-class QwenClient:
+class VlmClient:
     def __init__(
         self,
         api_key: str,
-        endpoint: str,
-        language: str,
-        model: str = "qwen-vl-plus",
+        endpoint: str = OPENROUTER_ENDPOINT,
+        language: str = "en",
+        model: str = DEFAULT_MODEL,
         timeout: float = 30.0,
         temperature: float = 0.7,
         max_retries: int = 3,
@@ -111,6 +114,7 @@ class QwenClient:
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
+            "X-Title": "YAIC",
         }
 
         response_format = {"type": "json_object"}
@@ -142,7 +146,7 @@ class QwenClient:
                     timeout=self._timeout,
                 )
                 if response.status_code == 400 and response_format:
-                    logger.info("Qwen API rejected response_format; retrying without it")
+                    logger.info("VLM API rejected response_format; retrying without it")
                     payload = {
                         "model": self._model,
                         "temperature": self._temperature,
@@ -171,31 +175,31 @@ class QwenClient:
                 try:
                     response_data = response.json()
                 except ValueError:
-                    logger.exception("Qwen API response is not valid JSON")
+                    logger.exception("VLM API response is not valid JSON")
                     raise
                 return self._extract_content_json(response_data)
             except requests.HTTPError:
                 logger.info(
-                    "Qwen API HTTP error (status=%s)",
+                    "VLM API HTTP error (status=%s)",
                     response.status_code if "response" in locals() else "unknown",
                 )
                 raise
             except requests.RequestException:
-                logger.info("Qwen API request failed (attempt %s)", attempt)
+                logger.info("VLM API request failed (attempt %s)", attempt)
                 if attempt == self._max_retries:
-                    logger.exception("Qwen API request failed")
+                    logger.exception("VLM API request failed")
                     raise
-                logger.warning("Qwen API request failed, retrying (attempt %s)", attempt)
+                logger.warning("VLM API request failed, retrying (attempt %s)", attempt)
                 time.sleep(backoff)
                 backoff *= 2
 
-        raise RuntimeError("Qwen API retry loop exhausted")
+        raise RuntimeError("VLM API retry loop exhausted")
 
     def _parse_result(
         self, data: dict[str, Any], fallback: ClassificationResult | None = None
     ) -> ClassificationResult:
         if not isinstance(data, dict):
-            raise ValueError("Qwen API response must be a JSON object")
+            raise ValueError("VLM API response must be a JSON object")
 
         label = _coerce_str(data.get("label")) or (fallback.label if fallback else UNKNOWN)
         confidence = _coerce_float(data.get("confidence"))
@@ -255,7 +259,6 @@ class QwenClient:
 
     def _detail_prompt(self) -> str:
         return (
-            "/no_think\n"
             "Analyze people in the image.\n"
             "Return ONLY valid JSON. No markdown, no extra text.\n"
             "label must be exactly \"person\".\n"
@@ -269,7 +272,6 @@ class QwenClient:
 
     def _default_prompt(self) -> str:
         return (
-            "/no_think\n"
             "Classify the main subject in the image.\n"
             "Allowed labels: person, car, animal, package, unknown.\n"
             "Return ONLY valid JSON. No markdown, no extra text.\n"
@@ -286,20 +288,20 @@ class QwenClient:
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, TypeError, IndexError) as exc:
-            logger.exception("Qwen API response missing expected content")
-            raise ValueError("Qwen API response missing expected content") from exc
+            logger.exception("VLM API response missing expected content")
+            raise ValueError("VLM API response missing expected content") from exc
 
         if isinstance(content, list):
             try:
                 text = content[0]["text"]
             except (TypeError, KeyError, IndexError) as exc:
-                logger.exception("Qwen API response missing expected content")
-                raise ValueError("Qwen API response missing expected content") from exc
+                logger.exception("VLM API response missing expected content")
+                raise ValueError("VLM API response missing expected content") from exc
         elif isinstance(content, str):
             text = content
         else:
-            logger.exception("Qwen API response missing expected content")
-            raise ValueError("Qwen API response missing expected content")
+            logger.exception("VLM API response missing expected content")
+            raise ValueError("VLM API response missing expected content")
 
         text = _strip_think_block(text)
         text = _strip_json_fence(text)
@@ -307,7 +309,7 @@ class QwenClient:
         try:
             return json.loads(text)
         except (TypeError, ValueError):
-            logger.exception("Qwen API response content is not valid JSON")
+            logger.exception("VLM API response content is not valid JSON")
             return _recover_json_payload(text)
 
 
@@ -472,7 +474,7 @@ def _log_debug_request(endpoint: str, headers: dict[str, str], payload: dict[str
     safe_headers["Authorization"] = f"Bearer {_mask_api_key(safe_headers.get('Authorization', ''))}"
     safe_payload = _sanitize_payload(payload)
     logger.debug(
-        "Qwen request endpoint=%s headers=%s payload=%s",
+        "VLM request endpoint=%s headers=%s payload=%s",
         endpoint,
         safe_headers,
         json.dumps(safe_payload, ensure_ascii=True),
@@ -486,7 +488,7 @@ def _log_debug_response(response: requests.Response) -> None:
     if len(body) > 2000:
         body = f"{body[:2000]}...[truncated]"
     logger.debug(
-        "Qwen response status=%s body=%s",
+        "VLM response status=%s body=%s",
         response.status_code,
         body,
     )

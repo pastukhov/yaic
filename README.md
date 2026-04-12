@@ -1,6 +1,6 @@
 # yaic — Yet Another Image Classifier
 
-yaic subscribes to an MQTT topic, receives an image, sends it to the OpenAI-compatible DashScope Qwen multimodal API, and publishes a classification result to another MQTT topic.
+yaic subscribes to an MQTT topic, receives an image, sends it to an OpenAI-compatible VLM API (default: OpenRouter with automatic model selection), and publishes a classification result to another MQTT topic.
 It also registers Home Assistant entities via MQTT Discovery and emits people analytics when persons are detected.
 
 Executable app name: `yaic`
@@ -18,17 +18,12 @@ Set required environment variables and start:
 
 ```bash
 export MQTT_HOST=localhost
-export MQTT_TOPIC_IN=yaic/in
-export MQTT_TOPIC_OUT=yaic/out
+export MQTT_TOPIC_IN=yaic/input/+/image
+export MQTT_TOPIC_OUT=yaic/output
 export MQTT_TOPIC_STATUS=yaic/status
 export MQTT_TOPIC_LOG=yaic/log
-# Optional for local Pyramid setup:
-export QWEN_API_KEY=none
-export QWEN_ENDPOINT=https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
-export QWEN_MODEL=qwen-vl-plus
+export VLM_API_KEY=sk-or-...        # OpenRouter API key
 export YAIC_LANGUAGE=en
-export YAIC_INFERENCE_TIMEOUT=60
-export YAIC_INFERENCE_TEMPERATURE=0.1
 poetry run yaic
 ```
 
@@ -72,13 +67,13 @@ journalctl -u yaic-compose -f
 | MQTT_TOPIC_OUT | output topic | yes |
 | MQTT_TOPIC_STATUS | status topic prefix | yes |
 | MQTT_TOPIC_LOG | log topic | yes |
-| QWEN_API_KEY | Qwen API key (optional for local Pyramid/OpenAI-plugin setup) | no |
-| QWEN_ENDPOINT | OpenAI-compatible DashScope endpoint | yes |
-| QWEN_MODEL | Qwen model name (default `qwen-vl-plus`) | no |
-| LOG_LEVEL | logging level | no |
+| VLM_API_KEY | API key for the VLM provider (OpenRouter key for cloud, any string for local) | no |
+| VLM_ENDPOINT | OpenAI-compatible endpoint (default: `https://openrouter.ai/api/v1/chat/completions`) | no |
+| VLM_MODEL | model name (default: `openrouter/auto` — automatic selection) | no |
 | YAIC_LANGUAGE | response language (ISO 639) | yes |
 | YAIC_INFERENCE_TIMEOUT | VLM request timeout in seconds (default `60`) | no |
 | YAIC_INFERENCE_TEMPERATURE | VLM temperature (default `0.1`) | no |
+| LOG_LEVEL | logging level | no |
 
 ## Input and output
 
@@ -203,16 +198,12 @@ Event payload example:
 When label is `person`, the result includes count, details per person, and summary fields.
 If the API does not provide these fields, yaic requests a richer response; otherwise it falls back to `unknown`.
 
-## Limitations and errors
-
-- Qwen responses without required fields fall back to `unknown` and `0.0`.
-- MQTT auto-reconnect is enabled; Qwen requests are retried with exponential backoff.
-- The Qwen endpoint must accept OpenAI-compatible chat completions with image content.
-
 ## Notes
 
 - MQTT uses QoS 1 and auto-reconnect.
 - The output payload always includes `label`, `confidence`, and `person`.
+- VLM requests are retried with exponential backoff on network errors.
+- `VLM_MODEL=openrouter/auto` lets OpenRouter pick the best available vision model automatically.
 
 ## E2E scenario
 
@@ -221,27 +212,15 @@ Tools for manual scenario testing are under `tools/`.
 1. Publish images from `tests/e2e/images`:
 
 ```bash
-poetry run python tools/publish_e2e_images.py --source-id front-door
+/home/artem/repos/yaic/.venv/bin/python tools/publish_e2e_images.py --source-id front-door
 ```
 
 2. Full user flow (`photo -> description`):
 
 ```bash
-poetry run python tools/e2e_photo_to_description.py \
+/home/artem/repos/yaic/.venv/bin/python tools/e2e_photo_to_description.py \
   --source-id front-door \
   --timeout 240
 ```
 
 The tool reads defaults from `.env` (`MQTT_HOST`, `MQTT_PORT`, `MQTT_TOPIC_IN`, `MQTT_TOPIC_OUT`).
-
-## Pyramid troubleshooting
-
-- `400 Unsupported model`: model name is invalid for current runtime.
-  Check:
-  ```bash
-  curl -s http://<pyramid-ip>:8000/v1/models | jq -r '.data[].id'
-  ```
-- `503 Insufficient Memory Resource`: selected model does not fit memory.
-  Switch to a lighter VLM model or unload other models.
-- Long `ReadTimeout` in YAIC logs: inference is too slow for current timeout/model.
-  Increase `YAIC_INFERENCE_TIMEOUT` and verify Pyramid load.
