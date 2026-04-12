@@ -19,6 +19,7 @@ class Config:
     vlm_model: str
     log_level: str
     yaic_language: str
+    ha_token: str = ""
     inference_timeout: float = 60.0
     inference_temperature: float = 0.1
 
@@ -35,6 +36,7 @@ def load_config() -> Config:
     vlm_model = os.getenv("VLM_MODEL", DEFAULT_MODEL)
     log_level = os.getenv("LOG_LEVEL", "INFO")
     yaic_language = os.getenv("YAIC_LANGUAGE")
+    ha_token = os.getenv("HA_TOKEN", "")
     inference_timeout = float(os.getenv("YAIC_INFERENCE_TIMEOUT", "60"))
     inference_temperature = float(os.getenv("YAIC_INFERENCE_TEMPERATURE", "0.1"))
 
@@ -68,6 +70,7 @@ def load_config() -> Config:
         vlm_model=vlm_model,
         log_level=log_level,
         yaic_language=yaic_language,
+        ha_token=ha_token,
         inference_timeout=inference_timeout,
         inference_temperature=inference_temperature,
     )
