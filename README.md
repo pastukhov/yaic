@@ -22,10 +22,13 @@ export MQTT_TOPIC_IN=yaic/in
 export MQTT_TOPIC_OUT=yaic/out
 export MQTT_TOPIC_STATUS=yaic/status
 export MQTT_TOPIC_LOG=yaic/log
-export QWEN_API_KEY=your-key
+# Optional for local Pyramid setup:
+export QWEN_API_KEY=none
 export QWEN_ENDPOINT=https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions
 export QWEN_MODEL=qwen-vl-plus
 export YAIC_LANGUAGE=en
+export YAIC_INFERENCE_TIMEOUT=60
+export YAIC_INFERENCE_TEMPERATURE=0.1
 poetry run yaic
 ```
 
@@ -69,11 +72,13 @@ journalctl -u yaic-compose -f
 | MQTT_TOPIC_OUT | output topic | yes |
 | MQTT_TOPIC_STATUS | status topic prefix | yes |
 | MQTT_TOPIC_LOG | log topic | yes |
-| QWEN_API_KEY | Qwen API key | yes |
+| QWEN_API_KEY | Qwen API key (optional for local Pyramid/OpenAI-plugin setup) | no |
 | QWEN_ENDPOINT | OpenAI-compatible DashScope endpoint | yes |
 | QWEN_MODEL | Qwen model name (default `qwen-vl-plus`) | no |
 | LOG_LEVEL | logging level | no |
 | YAIC_LANGUAGE | response language (ISO 639) | yes |
+| YAIC_INFERENCE_TIMEOUT | VLM request timeout in seconds (default `60`) | no |
+| YAIC_INFERENCE_TEMPERATURE | VLM temperature (default `0.1`) | no |
 
 ## Input and output
 
@@ -208,3 +213,35 @@ If the API does not provide these fields, yaic requests a richer response; other
 
 - MQTT uses QoS 1 and auto-reconnect.
 - The output payload always includes `label`, `confidence`, and `person`.
+
+## E2E scenario
+
+Tools for manual scenario testing are under `tools/`.
+
+1. Publish images from `tests/e2e/images`:
+
+```bash
+poetry run python tools/publish_e2e_images.py --source-id front-door
+```
+
+2. Full user flow (`photo -> description`):
+
+```bash
+poetry run python tools/e2e_photo_to_description.py \
+  --source-id front-door \
+  --timeout 240
+```
+
+The tool reads defaults from `.env` (`MQTT_HOST`, `MQTT_PORT`, `MQTT_TOPIC_IN`, `MQTT_TOPIC_OUT`).
+
+## Pyramid troubleshooting
+
+- `400 Unsupported model`: model name is invalid for current runtime.
+  Check:
+  ```bash
+  curl -s http://<pyramid-ip>:8000/v1/models | jq -r '.data[].id'
+  ```
+- `503 Insufficient Memory Resource`: selected model does not fit memory.
+  Switch to a lighter VLM model or unload other models.
+- Long `ReadTimeout` in YAIC logs: inference is too slow for current timeout/model.
+  Increase `YAIC_INFERENCE_TIMEOUT` and verify Pyramid load.

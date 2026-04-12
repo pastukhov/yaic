@@ -72,6 +72,8 @@ def build_config() -> Config:
         qwen_model="model",
         log_level="INFO",
         yaic_language="en",
+        inference_timeout=60.0,
+        inference_temperature=0.1,
     )
 
 
