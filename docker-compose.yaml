@@ -17,4 +17,7 @@ services:
       YAIC_INFERENCE_TIMEOUT: ${YAIC_INFERENCE_TIMEOUT:-60}
       YAIC_INFERENCE_TEMPERATURE: ${YAIC_INFERENCE_TEMPERATURE:-0.1}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      HA_TOKEN: ${HA_TOKEN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped

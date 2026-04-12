@@ -37,15 +37,18 @@ def fetch_image_bytes(msg: ImageMessage, ha_token: str = "", timeout: float = 5.
         return base64.b64decode(msg.image_b64)
 
     headers = get_http_headers_for_url(msg.image_url, ha_token)
-    with httpx.Client() as client:
-        response = client.get(
-            msg.image_url,
-            headers=headers,
-            timeout=timeout,
-            follow_redirects=True,
-        )
-        response.raise_for_status()
-        return response.content
+    try:
+        with httpx.Client() as client:
+            response = client.get(
+                msg.image_url,
+                headers=headers,
+                timeout=timeout,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            return response.content
+    except Exception as exc:
+        raise RuntimeError(f"Failed to fetch image from {msg.image_url!r}: {exc}") from exc
 
 
 @dataclass(frozen=True)
