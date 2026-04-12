@@ -1,41 +1,52 @@
 blueprint:
-  name: YAIC Person Snapshot to MQTT + Notify (2024.8+)
+  name: YAIC Doorbell Camera → MQTT + Notify
   description: >
-    On person event: take snapshot, wait briefly, publish to YAIC MQTT, wait for
-    classification, then send notification with the result and image.
+    При событии домофона с нужным cmd: делает снимок, публикует image_url в YAIC
+    через MQTT, ждёт результат классификации, отправляет sticky-уведомление.
+
+    Требует HA 2024.8+. Не использует readfile() — передаёт image_url,
+    YAIC фетчит изображение сам.
   domain: automation
+  source_url: https://github.com/pastukhov/yaic
+
   input:
     trigger_event_entity:
       name: Event Entity
+      description: event-сущность домофона (например event.domofon_doorbell_message)
       selector:
         entity:
           domain: event
 
     trigger_cmd:
       name: Command Filter
+      description: Значение поля cmd в атрибуте message, на которое реагировать.
       default: ipc_human
       selector:
         text: {}
 
     camera_entity:
       name: Camera Entity
+      description: Камера домофона для снимка.
       selector:
         entity:
           domain: camera
 
     source_id:
       name: YAIC Source ID
+      description: Идентификатор источника в MQTT-топике (например domofon).
       selector:
         text: {}
 
     snapshot_path:
       name: Snapshot File Path
+      description: Путь для сохранения снимка внутри контейнера HA.
       default: /config/www/yaic_latest.jpg
       selector:
         text: {}
+
     snapshot_wait_seconds:
-      name: Snapshot Wait Seconds
-      description: Delay after snapshot before reading file.
+      name: Snapshot Wait (seconds)
+      description: Пауза после camera.snapshot перед публикацией.
       default: 1
       selector:
         number:
@@ -44,19 +55,35 @@ blueprint:
           step: 1
           unit_of_measurement: s
 
+    ha_base_url:
+      name: Home Assistant Base URL
+      description: >
+        Базовый URL HA — по нему YAIC будет фетчить снимок.
+        Должен быть доступен с машины где запущен YAIC.
+        Например: http://192.168.1.10:8123 или https://my.ha.example.com
+      default: http://localhost:8123
+      selector:
+        text: {}
+
     mqtt_topic_base:
-      name: MQTT Topic Base
+      name: MQTT Input Topic Base
+      description: Базовый топик для публикации в YAIC.
       default: yaic/input
       selector:
         text: {}
-    mqtt_result_base:
-      name: MQTT Result Base
-      description: Base MQTT topic for YAIC results.
+
+    mqtt_result_topic:
+      name: MQTT Result Topic
+      description: >
+        Топик на котором YAIC публикует результат классификации.
+        Внимание: шаблоны здесь не работают — укажите полный топик явно.
       default: yaic/output
       selector:
         text: {}
+
     response_timeout_seconds:
-      name: Response Timeout Seconds
+      name: Response Timeout (seconds)
+      description: Сколько ждать ответа от YAIC.
       default: 10
       selector:
         number:
@@ -71,21 +98,14 @@ blueprint:
       selector:
         text: {}
 
-    notification_message:
-      name: Notification Message
-      default: Human body detected
-      selector: { text: {} }
-
-    notification_image:
-      name: Notification Image URL
-      default: ''
-      selector: { text: {} }
-
     notify_action:
       name: Notify Action
-      description: >-
-        Use {{ _notify_title }}, {{ _notify_message }}, {{ _notify_image }},
-        or {{ _result_text }} in the action data.
+      description: >
+        Действие уведомления. Доступны переменные:
+        {{ _notify_title }} — заголовок,
+        {{ _notify_image }} — путь к снимку (/local/...),
+        {{ _result_text }} — результат классификации (label + confidence),
+        {{ _result_label }}, {{ _result_confidence }}.
       selector:
         action: {}
 
@@ -97,31 +117,26 @@ variables:
   _snapshot_wait: !input snapshot_wait_seconds
   _source_id: !input source_id
   _mqtt_base: !input mqtt_topic_base
-  _mqtt_result_base: !input mqtt_result_base
+  _ha_base_url: !input ha_base_url
   _notify_title: !input notification_title
-  _notify_message: !input notification_message
-  _custom_image: !input notification_image
+  _trigger_cmd: !input trigger_cmd
 
   _message_json: >-
     {{
       (
         trigger.event.data.new_state.attributes.message
-        if trigger.event.data.new_state
+        if trigger.event.data.new_state is defined
         and trigger.event.data.new_state.attributes.message is defined
         else '{}'
       ) | from_json
     }}
 
   _notify_image: >-
-    {% if _custom_image | trim %}
-      {{ _custom_image }}
-    {% elif _snapshot_path.startswith('/config/www/') %}
+    {%- if _snapshot_path.startswith('/config/www/') -%}
       {{ '/local/' ~ _snapshot_path[13:] }}
-    {% else %}
+    {%- else -%}
       {{ '' }}
-    {% endif %}
-  _result_topic: >-
-    {{ _mqtt_result_base.rstrip('/') }}
+    {%- endif -%}
 
 trigger:
   - platform: event
@@ -131,36 +146,43 @@ trigger:
 
 condition:
   - condition: template
-    value_template: "{{ _message_json.get('cmd') == trigger_cmd }}"
+    value_template: "{{ _message_json.get('cmd') == _trigger_cmd }}"
 
 action:
   - action: camera.snapshot
-    data:
+    target:
       entity_id: !input camera_entity
+    data:
       filename: '{{ _snapshot_path }}'
 
   - delay: '{{ _snapshot_wait | int }}'
 
   - action: mqtt.publish
     data:
-      topic: '{{ _mqtt_base.rstrip("/") ~ "/" ~ _source_id ~ "/image" }}'
-      qos: 1
-      retain: false
+      topic: "{{ _mqtt_base.rstrip('/') ~ '/' ~ _source_id ~ '/image' }}"
       payload: >-
-        {{ {"image_b64": (readfile(_snapshot_path) | b64encode), "device": _source_id} | tojson }}
+        {{ {
+          'image_url': _ha_base_url.rstrip('/') ~ '/local/' ~ _snapshot_path[13:],
+          'device': _source_id
+        } | tojson }}
 
   - wait_for_trigger:
       - platform: mqtt
-        topic: '{{ _result_topic }}'
+        topic: !input mqtt_result_topic
     timeout:
       seconds: !input response_timeout_seconds
     continue_on_timeout: true
 
+  # Переменные разбиты на отдельные шаги — в одном блоке нельзя
+  # ссылаться на переменные из того же блока
   - variables:
       _result_payload: '{{ wait.trigger.payload_json if wait.trigger is defined else {} }}'
-      _result_label: '{{ _result_payload.label | default("unknown") }}'
-      _result_confidence: '{{ _result_payload.confidence | default(0) }}'
-      _result_text: >-
-        {{ _result_label }} ({{ _result_confidence | float | round(2) }})
+
+  - variables:
+      _result_label: "{{ _result_payload.label | default('unknown') }}"
+      _result_confidence: '{{ _result_payload.confidence | default(0) | float | round(2) }}'
+
+  - variables:
+      _result_text: '{{ _result_label }} ({{ _result_confidence }})'
 
   - !input notify_action
