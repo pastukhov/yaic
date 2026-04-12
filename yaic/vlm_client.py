@@ -270,10 +270,15 @@ class VlmClient:
 
     def _default_prompt(self) -> str:
         return (
-            "Classify the main subject in the image.\n"
-            "Allowed labels: person, car, animal, package, unknown.\n"
+            "You are analyzing a frame from a video intercom or entrance camera.\n"
+            "Classify what is visible in the image using exactly one of these labels:\n"
+            "  person  — one or more people are visible\n"
+            "  animal  — an animal is visible, no people\n"
+            "  package — a parcel or bag left unattended, no people\n"
+            "  empty   — the scene is clear: corridor/entrance with no person, animal, or package\n"
+            "  unknown — the image is too dark, blurry, or otherwise unreadable\n"
             "Return ONLY valid JSON. No markdown, no extra text.\n"
-            "Set label to one allowed value, not a list and not a pattern.\n"
+            "Set label to exactly one of the five values above.\n"
             "confidence must be a number from 0.0 to 1.0.\n"
             "If label is person: person.count >= 1 and short description.\n"
             "If label is not person: person must be {\"count\":0}.\n"
@@ -430,7 +435,7 @@ def _extract_json_object(text: str) -> str:
 def _recover_json_payload(text: str) -> dict[str, Any]:
     lowered = text.lower()
     label = UNKNOWN
-    for candidate in ("person", "car", "animal", "package", UNKNOWN):
+    for candidate in ("person", "animal", "package", "empty", UNKNOWN):
         if f'"label":"{candidate}"' in lowered or f'"label": "{candidate}"' in lowered:
             label = candidate
             break
