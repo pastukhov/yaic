@@ -257,14 +257,15 @@ class VlmClient:
 
     def _detail_prompt(self) -> str:
         return (
-            "Analyze people in the image.\n"
+            "Analyze all people visible in the image.\n"
             "Return ONLY valid JSON. No markdown, no extra text.\n"
             "label must be exactly \"person\".\n"
             "confidence must be a number from 0.0 to 1.0.\n"
-            "If at least one person is visible, set person.count >= 1 and provide short description.\n"
+            "Count ALL visible people and set person.count accordingly.\n"
+            "details must contain one entry PER person.\n"
             "If no person is visible, set person to {\"count\":0}.\n"
             "JSON shape:\n"
-            '{"label":"person","confidence":0.0,"person":{"count":0,"description":"text","details":[{"age_group":"unknown","gender":"unknown","appearance":"text","role":"unknown"}],"age_summary":"text","gender_summary":"text","role_summary":"text"}}\n'
+            '{"label":"person","confidence":0.0,"person":{"count":2,"description":"text","details":[{"age_group":"adult","gender":"male","appearance":"text","role":"unknown"},{"age_group":"adult","gender":"female","appearance":"text","role":"unknown"}],"age_summary":"text","gender_summary":"text","role_summary":"text"}}\n'
             f"Use language '{self._language}' for text values."
         )
 
@@ -280,7 +281,7 @@ class VlmClient:
             "Return ONLY valid JSON. No markdown, no extra text.\n"
             "Set label to exactly one of the five values above.\n"
             "confidence must be a number from 0.0 to 1.0.\n"
-            "If label is person: person.count >= 1 and short description.\n"
+            "If label is person: count ALL visible people, person.count >= 1, one details entry per person.\n"
             "If label is not person: person must be {\"count\":0}.\n"
             "JSON shape:\n"
             '{"label":"person","confidence":0.0,"person":{"count":0,"description":"text","details":[{"age_group":"unknown","gender":"unknown","appearance":"text","role":"unknown"}],"age_summary":"text","gender_summary":"text","role_summary":"text"}}\n'
