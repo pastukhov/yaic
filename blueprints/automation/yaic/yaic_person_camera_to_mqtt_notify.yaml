@@ -121,7 +121,7 @@ variables:
       {{ '' }}
     {% endif %}
   _result_topic: >-
-    {{ _mqtt_result_base.rstrip('/') ~ '/' ~ _source_id ~ '/classification' }}
+    {{ _mqtt_result_base.rstrip('/') }}
 
 trigger:
   - platform: event

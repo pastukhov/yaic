@@ -9,7 +9,7 @@ DISCOVERY_PREFIX = "homeassistant"
 STATUS_OPERATION_SUFFIX = "operation"
 IMAGE_TOPIC_TEMPLATE = "yaic/image/{source_id}/last"
 EVENT_TOPIC_TEMPLATE = "yaic/event/{source_id}"
-OUTPUT_TOPIC_TEMPLATE = "yaic/output/{source_id}/classification"
+OUTPUT_TOPIC_TEMPLATE = "yaic/output/{source_id}/classification"  # kept for reference only
 
 
 @dataclass(frozen=True)
@@ -29,9 +29,8 @@ def build_device_block(sw_version: str, source_id: str) -> dict[str, Any]:
         "sw_version": sw_version,
     }
 
-def build_output_topic(config: Config, source_id: str) -> str:
-    prefix = config.mqtt_topic_out.rstrip("/")
-    return f"{prefix}/{source_id}/classification"
+def build_output_topic(config: Config, source_id: str = "") -> str:
+    return config.mqtt_topic_out
 
 
 def build_status_topic(config: Config, source_id: str) -> str:

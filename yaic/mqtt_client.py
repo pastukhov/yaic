@@ -95,12 +95,13 @@ class MqttClient:
         label = result.payload.get("label", "unknown")
         confidence = result.payload.get("confidence", 0.0)
         person_count = result.payload.get("person", {}).get("count", 0)
+        output_topic = build_output_topic(self._config, source_id)
         logger.info(
-            "Classified source=%s label=%s confidence=%.2f people=%d",
-            source_id, label, confidence, person_count,
+            "Classified source=%s label=%s confidence=%.2f people=%d -> %s",
+            source_id, label, confidence, person_count, output_topic,
         )
 
-        client.publish(build_output_topic(self._config, source_id), payload=payload, qos=1)
+        client.publish(output_topic, payload=payload, qos=1)
         client.publish(build_image_topic(source_id), payload=result.image_bytes, qos=1, retain=True)
         client.publish(
             build_event_topic(source_id),

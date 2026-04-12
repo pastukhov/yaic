@@ -106,8 +106,7 @@ def test_handles_multiple_sources(monkeypatch):
     )
 
     topics = {item["topic"] for item in fake_client.published}
-    assert "yaic/output/cam1/classification" in topics
-    assert "yaic/output/front_door/classification" in topics
+    assert "yaic/output" in topics
     assert "yaic/image/cam1/last" in topics
     assert "yaic/image/front_door/last" in topics
     assert "yaic/event/cam1" in topics
@@ -118,7 +117,7 @@ def test_handles_multiple_sources(monkeypatch):
     payloads = [
         json.loads(item["payload"])
         for item in fake_client.published
-        if item["topic"].startswith("yaic/output/")
+        if item["topic"] == "yaic/output"
     ]
     assert {payload["source"] for payload in payloads} == {"cam1", "front_door"}
 

@@ -105,7 +105,7 @@ def resolve_input_topic(topic_template: str, source_id: str) -> str:
 
 
 def resolve_output_topic(output_prefix: str, source_id: str) -> str:
-    return f"{output_prefix.rstrip('/')}/{source_id}/classification"
+    return output_prefix.rstrip("/")
 
 
 def collect_images(images_dir: Path, image_path: str | None) -> list[Path]:
