@@ -5,7 +5,6 @@ services:
     image: eclipse-mosquitto:2
     ports:
       - "1883:1883"
-
   yaic:
     build: .
     depends_on:
@@ -15,10 +14,13 @@ services:
     environment:
       MQTT_HOST: ${MQTT_HOST:-mqtt}
       MQTT_PORT: ${MQTT_PORT:-1883}
-      MQTT_TOPIC_IN: ${MQTT_TOPIC_IN:-yaic/in}
-      MQTT_TOPIC_OUT: ${MQTT_TOPIC_OUT:-yaic/out}
-      QWEN_API_KEY: ${QWEN_API_KEY}
-      QWEN_ENDPOINT: ${QWEN_ENDPOINT:-https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions}
-      QWEN_MODEL: ${QWEN_MODEL:-qwen-vl-plus}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MQTT_TOPIC_IN: ${MQTT_TOPIC_IN:-yaic/input/+/image}
+      MQTT_TOPIC_OUT: ${MQTT_TOPIC_OUT:-yaic/output}
+      MQTT_TOPIC_STATUS: ${MQTT_TOPIC_STATUS:-yaic/status}
+      MQTT_TOPIC_LOG: ${MQTT_TOPIC_LOG:-yaic/log}
+      QWEN_ENDPOINT: ${QWEN_ENDPOINT:-http://192.168.11.128:8000/v1/chat/completions}
+      QWEN_MODEL: ${QWEN_MODEL:-internvl3-1B-448-ax650}
       YAIC_LANGUAGE: ${YAIC_LANGUAGE:-ru}
+      YAIC_INFERENCE_TIMEOUT: ${YAIC_INFERENCE_TIMEOUT:-60}
+      YAIC_INFERENCE_TEMPERATURE: ${YAIC_INFERENCE_TEMPERATURE:-0.1}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}

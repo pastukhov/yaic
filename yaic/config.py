@@ -17,6 +17,8 @@ class Config:
     qwen_model: str
     log_level: str
     yaic_language: str
+    inference_timeout: float = 60.0
+    inference_temperature: float = 0.1
 
 
 def load_config() -> Config:
@@ -26,11 +28,13 @@ def load_config() -> Config:
     mqtt_topic_out = os.getenv("MQTT_TOPIC_OUT")
     mqtt_topic_status = os.getenv("MQTT_TOPIC_STATUS")
     mqtt_topic_log = os.getenv("MQTT_TOPIC_LOG")
-    qwen_api_key = os.getenv("QWEN_API_KEY")
+    qwen_api_key = os.getenv("QWEN_API_KEY", "none")
     qwen_endpoint = os.getenv("QWEN_ENDPOINT")
     qwen_model = os.getenv("QWEN_MODEL", "qwen-vl-plus")
     log_level = os.getenv("LOG_LEVEL", "INFO")
     yaic_language = os.getenv("YAIC_LANGUAGE")
+    inference_timeout = float(os.getenv("YAIC_INFERENCE_TIMEOUT", "60"))
+    inference_temperature = float(os.getenv("YAIC_INFERENCE_TEMPERATURE", "0.1"))
 
     missing = []
     if not mqtt_host:
@@ -43,8 +47,6 @@ def load_config() -> Config:
         missing.append("MQTT_TOPIC_STATUS")
     if not mqtt_topic_log:
         missing.append("MQTT_TOPIC_LOG")
-    if not qwen_api_key:
-        missing.append("QWEN_API_KEY")
     if not qwen_endpoint:
         missing.append("QWEN_ENDPOINT")
     if not yaic_language:
@@ -66,4 +68,6 @@ def load_config() -> Config:
         qwen_model=qwen_model,
         log_level=log_level,
         yaic_language=yaic_language,
+        inference_timeout=inference_timeout,
+        inference_temperature=inference_temperature,
     )

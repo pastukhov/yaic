@@ -1,6 +1,12 @@
 import json
 
-from yaic.qwen_client import QwenClient, _detect_image_mime, _extract_json_object, _strip_json_fence
+from yaic.qwen_client import (
+    QwenClient,
+    _detect_image_mime,
+    _extract_json_object,
+    _strip_json_fence,
+    _strip_think_block,
+)
 
 
 def test_extract_content_json_from_list():
@@ -40,9 +46,97 @@ def test_strip_json_fence():
     assert _strip_json_fence(fenced) == "{\"ok\":true}"
 
 
+def test_strip_think_block_removes_thinking():
+    text = "<think>some reasoning</think>\n{\"label\":\"person\"}"
+    assert _strip_think_block(text) == "{\"label\":\"person\"}"
+
+
+def test_strip_think_block_multiline():
+    text = "<think>multi\nline\nthinking</think>{\"ok\":true}"
+    assert _strip_think_block(text) == "{\"ok\":true}"
+
+
+def test_strip_think_block_no_think():
+    text = "{\"label\":\"cat\"}"
+    assert _strip_think_block(text) == "{\"label\":\"cat\"}"
+
+
 def test_extract_json_object_from_text():
     text = "prefix {\"ok\": true} suffix"
     assert json.loads(_extract_json_object(text)) == {"ok": True}
+
+
+def test_extract_content_json_with_think_block():
+    client = QwenClient(api_key="key", endpoint="http://example", language="en")
+    data = {
+        "choices": [
+            {
+                "message": {
+                    "content": "<think>reasoning</think>\n{\"label\":\"person\",\"confidence\":0.9}"
+                }
+            }
+        ]
+    }
+
+    assert client._extract_content_json(data) == {
+        "label": "person",
+        "confidence": 0.9,
+    }
+
+
+def test_extract_content_json_recovers_malformed_json():
+    client = QwenClient(api_key="key", endpoint="http://example", language="en")
+    data = {
+        "choices": [
+            {
+                "message": {
+                    "content": '{"label":"person","confidence":0.82,"person":{"count":1,"description":"courier"'
+                }
+            }
+        ]
+    }
+
+    assert client._extract_content_json(data) == {
+        "label": "person",
+        "confidence": 0.82,
+        "person": {"count": 1, "description": "courier"},
+    }
+
+
+def test_post_image_includes_temperature(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"choices":[{"message":{"content":"{\\"label\\":\\"cat\\"}"}}]}'
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "{\"label\":\"cat\"}"}}]}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("yaic.qwen_client.requests.post", fake_post)
+
+    client = QwenClient(
+        api_key="key",
+        endpoint="http://example",
+        language="en",
+        temperature=0.25,
+    )
+
+    assert client._post_image(b"image-bytes", prompt="prompt") == {"label": "cat"}
+    assert captured["json"]["temperature"] == 0.25
+    image_url = captured["json"]["messages"][0]["content"][0]["image_url"]["url"]
+    assert isinstance(image_url, str)
+    assert not image_url.startswith("data:")
 
 
 def test_detect_image_mime():

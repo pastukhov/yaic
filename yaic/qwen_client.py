@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -75,6 +76,7 @@ class QwenClient:
         language: str,
         model: str = "qwen-vl-plus",
         timeout: float = 30.0,
+        temperature: float = 0.7,
         max_retries: int = 3,
     ) -> None:
         self._api_key = api_key
@@ -82,6 +84,7 @@ class QwenClient:
         self._language = language
         self._model = model
         self._timeout = timeout
+        self._temperature = temperature
         self._max_retries = max_retries
 
     def classify_image(self, image_bytes: bytes) -> ClassificationResult:
@@ -100,23 +103,10 @@ class QwenClient:
 
     def _post_image(self, image_bytes: bytes, prompt: str | None) -> dict[str, Any]:
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
-        data_url = _image_data_url(image_bytes, image_b64)
         prompt_text = prompt or self._default_prompt()
-        base_payload: dict[str, Any] = {
-            "model": self._model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": data_url},
-                        },
-                        {"type": "text", "text": prompt_text},
-                    ],
-                }
-            ],
-        }
+        # Some local OpenAI-compatible backends expect raw base64 in image_url.url
+        # and return empty content for data URLs.
+        image_url = image_b64
 
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -127,7 +117,22 @@ class QwenClient:
         backoff = 1.0
         for attempt in range(1, self._max_retries + 1):
             try:
-                payload = dict(base_payload)
+                payload: dict[str, Any] = {
+                    "model": self._model,
+                    "temperature": self._temperature,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": image_url},
+                                },
+                                {"type": "text", "text": prompt_text},
+                            ],
+                        }
+                    ],
+                }
                 payload["response_format"] = response_format
                 _log_debug_request(self._endpoint, headers, payload)
                 response = requests.post(
@@ -138,7 +143,22 @@ class QwenClient:
                 )
                 if response.status_code == 400 and response_format:
                     logger.info("Qwen API rejected response_format; retrying without it")
-                    payload = dict(base_payload)
+                    payload = {
+                        "model": self._model,
+                        "temperature": self._temperature,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {"url": image_url},
+                                    },
+                                    {"type": "text", "text": prompt_text},
+                                ],
+                            }
+                        ],
+                    }
                     _log_debug_request(self._endpoint, headers, payload)
                     response = requests.post(
                         self._endpoint,
@@ -235,19 +255,31 @@ class QwenClient:
 
     def _detail_prompt(self) -> str:
         return (
-            "Return a JSON object with label, confidence, and person analytics fields "
-            "including count, description, details (age_group, gender, appearance, role), "
-            "age_summary, gender_summary, role_summary. Use ISO 639 language "
-            f"'{self._language}' for free-text fields."
+            "/no_think\n"
+            "Analyze people in the image.\n"
+            "Return ONLY valid JSON. No markdown, no extra text.\n"
+            "label must be exactly \"person\".\n"
+            "confidence must be a number from 0.0 to 1.0.\n"
+            "If at least one person is visible, set person.count >= 1 and provide short description.\n"
+            "If no person is visible, set person to {\"count\":0}.\n"
+            "JSON shape:\n"
+            '{"label":"person","confidence":0.0,"person":{"count":0,"description":"text","details":[{"age_group":"unknown","gender":"unknown","appearance":"text","role":"unknown"}],"age_summary":"text","gender_summary":"text","role_summary":"text"}}\n'
+            f"Use language '{self._language}' for text values."
         )
 
     def _default_prompt(self) -> str:
         return (
-            "Return a JSON object with fields: label, confidence, and person analytics "
-            "(count, description, details[age_group, gender, appearance, role], "
-            "age_summary, gender_summary, role_summary). Return ONLY JSON, no markdown, "
-            "no code fences, no extra text. "
-            f"Language: {self._language}."
+            "/no_think\n"
+            "Classify the main subject in the image.\n"
+            "Allowed labels: person, car, animal, package, unknown.\n"
+            "Return ONLY valid JSON. No markdown, no extra text.\n"
+            "Set label to one allowed value, not a list and not a pattern.\n"
+            "confidence must be a number from 0.0 to 1.0.\n"
+            "If label is person: person.count >= 1 and short description.\n"
+            "If label is not person: person must be {\"count\":0}.\n"
+            "JSON shape:\n"
+            '{"label":"person","confidence":0.0,"person":{"count":0,"description":"text","details":[{"age_group":"unknown","gender":"unknown","appearance":"text","role":"unknown"}],"age_summary":"text","gender_summary":"text","role_summary":"text"}}\n'
+            f"Use language '{self._language}' for text values."
         )
 
     def _extract_content_json(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -269,13 +301,14 @@ class QwenClient:
             logger.exception("Qwen API response missing expected content")
             raise ValueError("Qwen API response missing expected content")
 
+        text = _strip_think_block(text)
         text = _strip_json_fence(text)
         text = _extract_json_object(text)
         try:
             return json.loads(text)
         except (TypeError, ValueError):
             logger.exception("Qwen API response content is not valid JSON")
-            raise
+            return _recover_json_payload(text)
 
 
 def _coerce_str(value: Any) -> str | None:
@@ -379,6 +412,10 @@ def _strip_json_fence(text: str) -> str:
     return "\n".join(lines[1:-1]).strip()
 
 
+def _strip_think_block(text: str) -> str:
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+
 def _extract_json_object(text: str) -> str:
     trimmed = text.strip()
     if trimmed.startswith("{") and trimmed.endswith("}"):
@@ -388,6 +425,44 @@ def _extract_json_object(text: str) -> str:
     if start == -1 or end == -1 or end <= start:
         return trimmed
     return trimmed[start : end + 1]
+
+
+def _recover_json_payload(text: str) -> dict[str, Any]:
+    lowered = text.lower()
+    label = UNKNOWN
+    for candidate in ("person", "car", "animal", "package", UNKNOWN):
+        if f'"label":"{candidate}"' in lowered or f'"label": "{candidate}"' in lowered:
+            label = candidate
+            break
+
+    confidence = 0.0
+    confidence_match = re.search(r'"confidence"\s*:\s*([0-9]*\.?[0-9]+)', text)
+    if confidence_match:
+        try:
+            confidence = float(confidence_match.group(1))
+        except ValueError:
+            confidence = 0.0
+
+    person_count = 0
+    count_match = re.search(r'"count"\s*:\s*(\d+)', text)
+    if count_match:
+        try:
+            person_count = int(count_match.group(1))
+        except ValueError:
+            person_count = 0
+    elif label == "person":
+        person_count = 1
+
+    payload: dict[str, Any] = {
+        "label": label,
+        "confidence": confidence,
+        "person": {"count": person_count},
+    }
+
+    description_match = re.search(r'"description"\s*:\s*"([^"]+)"', text)
+    if description_match and person_count > 0:
+        payload["person"]["description"] = description_match.group(1)
+    return payload
 
 
 def _log_debug_request(endpoint: str, headers: dict[str, str], payload: dict[str, Any]) -> None:

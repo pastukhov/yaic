@@ -43,6 +43,8 @@ def main() -> None:
         endpoint=config.qwen_endpoint,
         language=config.yaic_language,
         model=config.qwen_model,
+        timeout=config.inference_timeout,
+        temperature=config.inference_temperature,
     )
     processor = Processor(qwen)
     client = MqttClient(config, processor, sw_version=_get_version())
