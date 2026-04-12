@@ -46,7 +46,7 @@ def main() -> None:
         timeout=config.inference_timeout,
         temperature=config.inference_temperature,
     )
-    processor = Processor(vlm)
+    processor = Processor(vlm, ha_token=config.ha_token)
     client = MqttClient(config, processor, sw_version=_get_version())
 
     shutdown_event = threading.Event()

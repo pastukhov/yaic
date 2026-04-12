@@ -10,6 +10,8 @@ packages = [{ include = "yaic" }]
 python = "^3.11"
 paho-mqtt = "^1.6.1"
 requests = "^2.31.0"
+pydantic = "^2.12.5"
+httpx = "^0.28.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"
