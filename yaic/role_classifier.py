@@ -18,6 +18,18 @@ DEFAULT_ROLES: dict[str, str] = {
     "technician": (
         "Workwear, tools, hard hat, high-visibility vest, utility belt"
     ),
+    "doctor": (
+        "Medical white coat or scrubs, stethoscope, medical badge or bag"
+    ),
+    "police": (
+        "Police uniform, badge, cap with police insignia, holster or duty belt"
+    ),
+    "firefighter": (
+        "Firefighter turnout gear, helmet, reflective stripes, fire department insignia"
+    ),
+    "military": (
+        "Military uniform or camouflage, rank insignia, military cap or beret, combat boots"
+    ),
     "neighbor": "Casual everyday clothing, no specific work-related attributes",
     "stranger": "Does not clearly fit any of the above categories",
 }
