@@ -6,6 +6,7 @@ import signal
 import threading
 from importlib.metadata import PackageNotFoundError, version
 
+from . import api
 from .config import load_config
 from .mqtt_client import MqttClient
 from .processor import Processor
@@ -46,7 +47,38 @@ def main() -> None:
         timeout=config.inference_timeout,
         temperature=config.inference_temperature,
     )
-    processor = Processor(vlm, ha_token=config.ha_token)
+
+    face_recognizer = None
+    role_classifier = None
+
+    if config.chroma_host:
+        from .face_recognition import FaceRecognizer
+        from .role_classifier import RoleClassifier
+
+        face_recognizer = FaceRecognizer(
+            chroma_host=config.chroma_host,
+            chroma_port=config.chroma_port,
+            faces_dir=config.faces_dir,
+            similarity_high=config.face_similarity_high,
+            similarity_low=config.face_similarity_low,
+            vlm_client=vlm,
+        )
+        if config.face_index_on_startup:
+            logging.getLogger(__name__).info("Building face index on startup")
+            face_recognizer.reindex()
+
+        if config.classify_stranger_role:
+            role_classifier = RoleClassifier(vlm, config.yaic_language)
+
+        api.set_face_recognizer(face_recognizer)
+        api.start_api_server(config.api_host, config.api_port)
+
+    processor = Processor(
+        vlm,
+        ha_token=config.ha_token,
+        face_recognizer=face_recognizer,
+        role_classifier=role_classifier,
+    )
     client = MqttClient(config, processor, sw_version=_get_version())
 
     shutdown_event = threading.Event()

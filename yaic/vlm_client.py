@@ -288,6 +288,78 @@ class VlmClient:
             f"Use language '{self._language}' for text values."
         )
 
+    def verify_same_person(self, ref_bytes: bytes, query_bytes: bytes, name: str) -> dict[str, Any]:
+        """Send two images to the VLM and ask whether they show the same person.
+
+        Returns a dict with keys ``same_person`` (bool) and ``confidence`` (float).
+        Raises on network or HTTP errors.
+        """
+        ref_b64 = base64.b64encode(ref_bytes).decode("ascii")
+        query_b64 = base64.b64encode(query_bytes).decode("ascii")
+        ref_url = _image_data_url(ref_bytes, ref_b64)
+        query_url = _image_data_url(query_bytes, query_b64)
+
+        prompt = (
+            f'The first photo shows {name}. '
+            "Is the second photo the same person? "
+            'Return ONLY valid JSON: {"same_person": true/false, "confidence": 0.0}'
+        )
+
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+            "X-Title": "YAIC",
+        }
+
+        response_format = {"type": "json_object"}
+        backoff = 1.0
+        for attempt in range(1, self._max_retries + 1):
+            try:
+                payload: dict[str, Any] = {
+                    "model": self._model,
+                    "temperature": self._temperature,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "image_url", "image_url": {"url": ref_url}},
+                                {"type": "image_url", "image_url": {"url": query_url}},
+                                {"type": "text", "text": prompt},
+                            ],
+                        }
+                    ],
+                    "response_format": response_format,
+                }
+                _log_debug_request(self._endpoint, headers, payload)
+                response = requests.post(
+                    self._endpoint, json=payload, headers=headers, timeout=self._timeout
+                )
+                if response.status_code == 400:
+                    payload.pop("response_format", None)
+                    response = requests.post(
+                        self._endpoint, json=payload, headers=headers, timeout=self._timeout
+                    )
+                _log_debug_response(response)
+                response.raise_for_status()
+                return self._extract_content_json(response.json())
+            except requests.HTTPError:
+                raise
+            except requests.RequestException:
+                if attempt == self._max_retries:
+                    raise
+                logger.warning("verify_same_person request failed, retrying (attempt %s)", attempt)
+                time.sleep(backoff)
+                backoff *= 2
+
+        raise RuntimeError("verify_same_person retry loop exhausted")
+
+    def classify_role(self, image_bytes: bytes, prompt: str) -> dict[str, Any]:
+        """Classify the role of a visitor in *image_bytes* using a custom prompt.
+
+        Returns the raw parsed JSON dict from the VLM response.
+        """
+        return self._post_image(image_bytes, prompt=prompt)
+
     def _extract_content_json(self, data: dict[str, Any]) -> dict[str, Any]:
         try:
             content = data["choices"][0]["message"]["content"]
