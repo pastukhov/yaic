@@ -1,6 +1,14 @@
 services:
+  chromadb:
+    image: chromadb/chroma:latest
+    restart: unless-stopped
+    volumes:
+      - chroma_data:/chroma/chroma
+
   yaic:
     build: .
+    depends_on:
+      - chromadb
     env_file:
       - .env
     environment:
@@ -18,6 +26,22 @@ services:
       YAIC_INFERENCE_TEMPERATURE: ${YAIC_INFERENCE_TEMPERATURE:-0.1}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       HA_TOKEN: ${HA_TOKEN:-}
+      CHROMA_HOST: ${CHROMA_HOST:-chromadb}
+      CHROMA_PORT: ${CHROMA_PORT:-8000}
+      FACES_DIR: ${FACES_DIR:-/app/faces}
+      FACE_SIMILARITY_HIGH: ${FACE_SIMILARITY_HIGH:-0.85}
+      FACE_SIMILARITY_LOW: ${FACE_SIMILARITY_LOW:-0.60}
+      CLASSIFY_STRANGER_ROLE: ${CLASSIFY_STRANGER_ROLE:-true}
+      FACE_INDEX_ON_STARTUP: ${FACE_INDEX_ON_STARTUP:-true}
+      API_HOST: ${API_HOST:-0.0.0.0}
+      API_PORT: ${API_PORT:-8080}
+    volumes:
+      - ./faces:/app/faces:ro
+    ports:
+      - "${API_PORT:-8080}:${API_PORT:-8080}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
+
+volumes:
+  chroma_data:

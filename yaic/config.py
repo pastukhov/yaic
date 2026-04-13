@@ -22,6 +22,17 @@ class Config:
     ha_token: str = ""
     inference_timeout: float = 60.0
     inference_temperature: float = 0.1
+    # Face recognition (optional; disabled when chroma_host is empty)
+    chroma_host: str = ""
+    chroma_port: int = 8000
+    faces_dir: str = "/app/faces"
+    face_similarity_high: float = 0.85
+    face_similarity_low: float = 0.60
+    classify_stranger_role: bool = True
+    face_index_on_startup: bool = True
+    # HTTP API
+    api_host: str = "0.0.0.0"
+    api_port: int = 8080
 
 
 def load_config() -> Config:
@@ -58,6 +69,16 @@ def load_config() -> Config:
         missing_str = ", ".join(missing)
         raise ValueError(f"Missing required env vars: {missing_str}")
 
+    chroma_host = os.getenv("CHROMA_HOST", "")
+    chroma_port = int(os.getenv("CHROMA_PORT", "8000"))
+    faces_dir = os.getenv("FACES_DIR", "/app/faces")
+    face_similarity_high = float(os.getenv("FACE_SIMILARITY_HIGH", "0.85"))
+    face_similarity_low = float(os.getenv("FACE_SIMILARITY_LOW", "0.60"))
+    classify_stranger_role = os.getenv("CLASSIFY_STRANGER_ROLE", "true").lower() == "true"
+    face_index_on_startup = os.getenv("FACE_INDEX_ON_STARTUP", "true").lower() == "true"
+    api_host = os.getenv("API_HOST", "0.0.0.0")
+    api_port = int(os.getenv("API_PORT", "8080"))
+
     return Config(
         mqtt_host=mqtt_host,
         mqtt_port=mqtt_port,
@@ -73,4 +94,13 @@ def load_config() -> Config:
         ha_token=ha_token,
         inference_timeout=inference_timeout,
         inference_temperature=inference_temperature,
+        chroma_host=chroma_host,
+        chroma_port=chroma_port,
+        faces_dir=faces_dir,
+        face_similarity_high=face_similarity_high,
+        face_similarity_low=face_similarity_low,
+        classify_stranger_role=classify_stranger_role,
+        face_index_on_startup=face_index_on_startup,
+        api_host=api_host,
+        api_port=api_port,
     )
