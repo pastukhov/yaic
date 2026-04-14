@@ -20,10 +20,7 @@ RUN poetry config virtualenvs.create false \
   && poetry install --no-interaction --no-ansi --only main --no-root
 
 # Pre-download InsightFace buffalo_l model so the container starts cold-start-free
-RUN python -c "\
-  import insightface.app as isf_app; \
-  a = isf_app.FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider']); \
-  a.prepare(ctx_id=-1)"
+RUN python -c "import insightface.app as isf_app; a = isf_app.FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider']); a.prepare(ctx_id=-1)"
 
 ENV PYTHONUNBUFFERED=1
 
