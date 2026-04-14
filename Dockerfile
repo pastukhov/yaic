@@ -4,9 +4,11 @@ WORKDIR /app
 
 # OS packages required by InsightFace / OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 \
-    libglib2.0-0 \
-    libgomp1 \
+  libgl1 \
+  libglib2.0-0 \
+  libgomp1 \
+  g++ \
+  cmake \
   && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir poetry
@@ -19,9 +21,9 @@ RUN poetry config virtualenvs.create false \
 
 # Pre-download InsightFace buffalo_l model so the container starts cold-start-free
 RUN python -c "\
-import insightface.app as isf_app; \
-a = isf_app.FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider']); \
-a.prepare(ctx_id=-1)"
+  import insightface.app as isf_app; \
+  a = isf_app.FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider']); \
+  a.prepare(ctx_id=-1)"
 
 ENV PYTHONUNBUFFERED=1
 
