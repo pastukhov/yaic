@@ -6,7 +6,7 @@ services:
       - chroma_data:/chroma/chroma
 
   yaic:
-    build: .
+    image: ghcr.io/pastukhov/yaic:latest
     depends_on:
       - chromadb
     env_file:
