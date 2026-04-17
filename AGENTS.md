@@ -1,36 +1,41 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
-- `yaic/` — application package (MQTT client, VLM API client, processor, entry points).
-- `tests/` — pytest test suite (`test_*.py`).
-- `Dockerfile`, `docker-compose.yaml` — container build and local stack with Mosquitto.
-- `README.md` — usage docs and integration notes.
-- `yaic-compose.service` — systemd unit for running docker compose.
+## Project Structure
+- `yaic/` — application package: `mqtt_client`, `vlm_client`, `processor`, `ha_discovery`, `config`, `main`, `api` (FastAPI), `face_recognition`, `role_classifier`.
+- `tests/` — pytest suite (`test_*.py`).
+- `tools/` — E2E test helpers.
+- `blueprints/automation/yaic/` — Home Assistant automation blueprint.
+- `Dockerfile`, `docker-compose.yaml` — container build and local stack (Mosquitto + ChromaDB).
 
-## Build, Test, and Development Commands
-- `poetry install` — install Python dependencies into the Poetry virtualenv.
-- `poetry run yaic` — run the CLI after setting required env vars.
-- `/home/artem/repos/yaic/.venv/bin/python -m pytest` — run the test suite (shebang in venv is broken, use python -m pytest directly).
-- `docker compose up --build` — build and run the app with Mosquitto locally.
-- `docker build -t pastukhov/yaic:latest .` — build the Docker image.
+## Commands
+- `poetry install --with dev` — install deps (include `--with dev` for test dependencies).
+- `poetry run yaic` — run CLI (env vars must be set).
+- `.venv/bin/python -m pytest` — run tests (venv shebang is broken, always use `python -m pytest`).
+- `docker compose up --build` — build and run app + Mosquitto + ChromaDB locally.
+- `docker build -t ghcr.io/pastukhov/yaic:latest .` — build Docker image (use GHCR, not Docker Hub).
 
-## Coding Style & Naming Conventions
-- Python: follow PEP 8 (4-space indentation, snake_case for functions/modules).
-- Tests: name files `tests/test_*.py` and test functions `test_*`.
-- Keep diffs minimal; avoid reformatting unrelated lines.
-
-## Testing Guidelines
-- Framework: pytest (`pytest` is listed under dev dependencies).
-- The virtualenv must always live in `.venv`.
-- Run locally with `poetry install` then `.venv/bin/python -m pytest`.
+## Testing
+- Use `.venv/bin/python -m pytest`, never rely on `pytest` shebang or `poetry run pytest`.
 - Run tests after every code change.
-- Add tests for new behavior under `tests/` and keep fixtures close to usage.
+- Add tests under `tests/test_*.py`; test functions named `test_*`.
 
-## Commit & Pull Request Guidelines
-- Recommended: concise, imperative subjects (e.g., `config: add retry backoff`).
-- PRs should include: purpose, summary of changes, and manual verification steps.
+## Face Recognition (Optional)
+- Disabled when `CHROMA_HOST` is empty (default); app runs in MQTT+VLM-only mode.
+- When enabled: starts FastAPI server on `API_HOST:API_PORT` (default `0.0.0.0:8080`).
+- Env vars: `CHROMA_HOST`, `CHROMA_PORT`, `FACES_DIR`, `FACE_SIMILARITY_HIGH` (default 0.85), `FACE_SIMILARITY_LOW` (default 0.60), `CLASSIFY_STRANGER_ROLE`, `FACE_INDEX_ON_STARTUP`, `API_HOST`, `API_PORT`.
+- Dockerfile pre-downloads InsightFace `buffalo_l` model to avoid cold-start delay.
 
-## Security & Configuration Tips
-- Do not commit secrets (e.g., `VLM_API_KEY`); prefer environment variables.
-- Required runtime env vars are listed in `README.md` (MQTT and VLM settings).
-- `VLM_ENDPOINT` defaults to OpenRouter; `VLM_MODEL` defaults to `openrouter/auto`.
+## Required Env Vars
+- Required: `MQTT_HOST`, `MQTT_TOPIC_IN`, `MQTT_TOPIC_OUT`, `MQTT_TOPIC_STATUS`, `MQTT_TOPIC_LOG`, `YAIC_LANGUAGE`.
+- Optional: `VLM_API_KEY` (default "none"), `VLM_ENDPOINT` (default OpenRouter), `VLM_MODEL` (default `openrouter/auto`), `MQTT_PORT`, `YAIC_INFERENCE_TIMEOUT`, `YAIC_INFERENCE_TEMPERATURE`, `LOG_LEVEL`, `HA_TOKEN`.
+- `VLM_MODEL=openrouter/auto` lets OpenRouter pick the best vision model.
+
+## Architecture Notes
+- `MqttClient` — MQTT lifecycle, HA discovery, log streaming, topic helpers shared with `ha_discovery`.
+- `Processor` — thin orchestrator: extracts image bytes from raw binary or `{"image_b64": ..., "device": ...}` JSON, calls VLM, packages result.
+- `Config` fails fast with a list of missing required env vars.
+- Logging output is JSON-formatted to stdout.
+
+## Coding Style
+- PEP 8, 4-space indentation, snake_case. Keep diffs minimal.
+- Do not commit secrets; use environment variables.
