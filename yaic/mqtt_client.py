@@ -112,7 +112,7 @@ class MqttClient:
 
     def _build_event_payload(self, result: ProcessingResult, source_id: str) -> dict[str, Any]:
         person = result.payload.get("person", {})
-        return {
+        payload = {
             "event_type": "classified",
             "source": source_id,
             "label": result.payload.get("label", "unknown"),
@@ -121,16 +121,23 @@ class MqttClient:
             "people": [detail.to_payload() for detail in result.people],
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        if result.payload.get("event_id") is not None:
+            payload["event_id"] = result.payload["event_id"]
+        return payload
 
     def _extract_source_id(self, topic: str) -> str | None:
+        template = self._config.mqtt_topic_in.split("/")
         parts = topic.split("/")
-        if len(parts) != 4:
+        if template.count("+") != 1 or "#" in template or len(parts) != len(template):
             return None
-        if parts[0] != "yaic" or parts[1] != "input" or parts[3] != "image":
-            return None
-        source_id = parts[2].strip()
-        if not source_id or source_id == "+":
-            return None
+        source_id = None
+        for expected, actual in zip(template, parts):
+            if expected == "+":
+                if not actual or actual.strip() != actual or any(c in actual for c in "+#\x00"):
+                    return None
+                source_id = actual
+            elif expected != actual:
+                return None
         return source_id
 
     def _extract_status_source_id(self, topic: str) -> str | None:

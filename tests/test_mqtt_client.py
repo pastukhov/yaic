@@ -137,3 +137,20 @@ def test_handles_multiple_sources(monkeypatch):
     assert (
         "homeassistant/sensor/yaic_front_door_classification/config" in discovery_topics
     )
+
+
+def test_classified_event_preserves_bridge_correlation():
+    result = ProcessingResult(payload={'event_id':'ring-123','person':{}},image_bytes=b'jpeg',people=())
+    payload = MqttClient._build_event_payload(None,result,'front')
+    assert payload['event_id']=='ring-123'
+    assert payload['source']=='front'
+    assert payload['event_type']=='classified'
+    assert isinstance(payload['timestamp'],str)
+
+
+def test_configurable_bridge_input_topic():
+    client = MqttClient.__new__(MqttClient)
+    from types import SimpleNamespace
+    client._config = SimpleNamespace(mqtt_topic_in='intercom/+/image')
+    assert client._extract_source_id('intercom/front/image') == 'front'
+    assert client._extract_source_id('yaic/input/front/image') is None

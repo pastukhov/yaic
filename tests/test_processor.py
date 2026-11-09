@@ -187,3 +187,13 @@ def test_process_image_url_payload():
         timeout=5.0,
         follow_redirects=True,
     )
+
+
+def test_event_id_correlation_preserved():
+    vlm=MagicMock()
+    vlm.classify_image.return_value=ClassificationResult(label='cat',confidence=.9,
+        person=PersonSummary(count=0,description=None,details=(),age_summary=None,gender_summary=None,role_summary=None))
+    data=json.dumps({'image_b64':base64.b64encode(b'image').decode(),'device':'door','event_id':'evt-123'}).encode()
+    result=Processor(vlm).process_message(data,'door')
+    assert result.payload['event_id']=='evt-123'
+    assert result.payload['source']=='door'

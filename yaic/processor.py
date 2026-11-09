@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from .vlm_client import VlmClient, PersonDetail
 
@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 class ImageMessage(BaseModel):
     device: Optional[str] = None
+    event_id: Optional[str] = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
     image_b64: Optional[str] = None
     image_url: Optional[str] = None
 
@@ -76,13 +77,15 @@ class Processor:
         self._role_classifier = role_classifier
 
     def process_message(self, payload: bytes, source_id: str) -> ProcessingResult:
-        image_bytes, device = self._extract_image(payload)
+        image_bytes, device, event_id = self._extract_image(payload)
         result = self._qwen.classify_image(image_bytes)
 
         output = result.to_payload()
         output["source"] = source_id
         if device:
             output["device"] = device
+        if event_id is not None:
+            output["event_id"] = event_id
 
         if result.label == "person" and self._face_recognizer is not None:
             face_result = self._face_recognizer.recognize(image_bytes)
@@ -105,7 +108,7 @@ class Processor:
 
         return ProcessingResult(payload=output, image_bytes=image_bytes, people=result.person.details)
 
-    def _extract_image(self, payload: bytes) -> tuple[bytes, str | None]:
+    def _extract_image(self, payload: bytes) -> tuple[bytes, str | None, str | None]:
         if not payload:
             raise ValueError("Empty payload")
 
@@ -113,11 +116,11 @@ class Processor:
             decoded = payload.decode("utf-8")
             data = json.loads(decoded)
         except (UnicodeDecodeError, json.JSONDecodeError):
-            return payload, None
+            return payload, None, None
 
         if not isinstance(data, dict):
             raise ValueError("JSON payload must be an object")
 
         msg = ImageMessage(**data)
         image_bytes = fetch_image_bytes(msg, self._ha_token)
-        return image_bytes, msg.device
+        return image_bytes, msg.device, msg.event_id
