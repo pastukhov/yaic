@@ -14,6 +14,7 @@ services:
     environment:
       MQTT_HOST: ${MQTT_HOST}
       MQTT_PORT: ${MQTT_PORT:-1883}
+      MQTT_MAX_OUTPUT_BYTES: ${MQTT_MAX_OUTPUT_BYTES:-16777216}
       MQTT_TOPIC_IN: ${MQTT_TOPIC_IN:-yaic/input/+/image}
       MQTT_TOPIC_OUT: ${MQTT_TOPIC_OUT:-yaic/output}
       MQTT_TOPIC_STATUS: ${MQTT_TOPIC_STATUS:-yaic/status}
@@ -25,7 +26,6 @@ services:
       YAIC_INFERENCE_TIMEOUT: ${YAIC_INFERENCE_TIMEOUT:-60}
       YAIC_INFERENCE_TEMPERATURE: ${YAIC_INFERENCE_TEMPERATURE:-0.1}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      HA_TOKEN: ${HA_TOKEN:-}
       CHROMA_HOST: ${CHROMA_HOST:-chromadb}
       CHROMA_PORT: ${CHROMA_PORT:-8000}
       FACES_DIR: ${FACES_DIR:-/app/faces}

@@ -1,12 +1,25 @@
 # yaic — Yet Another Image Classifier
 
-yaic subscribes to an MQTT topic, receives an image, sends it to an OpenAI-compatible VLM API (default: OpenRouter with automatic model selection), and publishes a classification result to another MQTT topic.
-It also registers Home Assistant entities via MQTT Discovery and emits people analytics when persons are detected.
+yaic classifies images through an OpenAI-compatible VLM API (default: OpenRouter).
+It can classify a local file, listen to read-only Tuya LAN events, or run the MQTT service.
 
 Executable app name: `yaic`
 Docker image name: `pastukhov/yaic:latest`
 
-## Local run
+## Standalone commands (no Home Assistant or MQTT required)
+
+```bash
+YAIC_LANGUAGE=en poetry run yaic classify --image /path/to/frame.jpg --source-id front-door
+poetry run yaic listen-tuya --device-config /private/device.json --source-id front-door
+```
+
+Add `--classify` to the listener to enable VLM. Human snapshots require an explicit
+`YAIC_SNAPSHOT_URL`; DP185 resource downloads are unresolved. DP154 may provide a
+signed cloud snapshot, whose real image encoding remains unverified. Event-only
+mode makes no VLM or image-download requests. Standalone output is JSONL on stdout;
+diagnostics are on stderr. See [setup, output and physical limitations](docs/standalone-tuya.md).
+
+## Local MQTT run
 
 Install deps with Poetry:
 
@@ -59,10 +72,15 @@ journalctl -u yaic-compose -f
 
 ## Environment variables
 
+Required MQTT variables below apply to the default MQTT service.
+Standalone classification only requires `YAIC_LANGUAGE` and working VLM settings.
+
+
 | Variable | Description | Required |
 | --- | --- | --- |
 | MQTT_HOST | broker host | yes |
 | MQTT_PORT | broker port (default 1883) | no |
+| MQTT_MAX_OUTPUT_BYTES | positive maximum serialized output size in UTF-8 bytes (default 16777216, 16 MiB) | no |
 | MQTT_TOPIC_IN | input topic | yes |
 | MQTT_TOPIC_OUT | output topic | yes |
 | MQTT_TOPIC_STATUS | status topic prefix | yes |
@@ -77,7 +95,7 @@ journalctl -u yaic-compose -f
 
 ## Input and output
 
-Input can be raw binary image bytes or JSON with base64 payload:
+Input can be raw binary image bytes or JSON with a base64 payload:
 
 ```json
 {
@@ -107,7 +125,9 @@ Output is JSON on the output topic (fields may include people analytics):
     "gender_summary": "2 male",
     "role_summary": "courier, unknown"
   },
-  "device": "cam-1"
+  "device": "cam-1",
+  "source": "front-door",
+  "image_b64": "<original image bytes as base64>"
 }
 ```
 
@@ -117,81 +137,52 @@ If no people are present, the payload includes `person.count` set to 0:
 {
   "label": "unknown",
   "confidence": 0.0,
-  "person": {"count": 0}
+  "person": {"count": 0},
+  "source": "front-door",
+  "image_b64": "<original image bytes as base64>"
 }
 ```
 
-## Home Assistant Discovery
+Every successful MQTT result includes `image_b64`, even when no people are present.
+It contains the exact original bytes passed to classification, without a data-URL
+prefix or another URL download. All existing metadata is preserved. Standalone
+CLI JSONL output does not include the image.
 
-Discovery topics are published on startup with retain/QoS 1 and include:
-
-- `homeassistant/sensor/yaic_<source_id>_classification/config`
-- `homeassistant/sensor/yaic_<source_id>_confidence/config`
-- `homeassistant/sensor/yaic_<source_id>_people_count/config`
-- `homeassistant/sensor/yaic_<source_id>_people_description/config`
-- `homeassistant/sensor/yaic_<source_id>_people_age/config`
-- `homeassistant/sensor/yaic_<source_id>_people_gender/config`
-- `homeassistant/sensor/yaic_<source_id>_people_roles/config`
-- `homeassistant/binary_sensor/yaic_<source_id>_person_detected/config`
-- `homeassistant/camera/yaic_<source_id>_last_image/config`
-- `homeassistant/event/yaic_<source_id>_event/config`
-
-Camera publishes last image to `yaic/image/<source_id>/last` with retain enabled.
-Event payloads are published to `yaic/event/<source_id>` on every classification.
+Results use QoS 1 and `retain=False`. QoS 1 can deliver duplicates; persistent
+sessions can still receive queued older messages. Operation `idle` means processing
+finished and the MQTT client accepted publication, not that a subscriber received
+it. Oversized results and immediate publish failures report operation `error`,
+without publishing a fallback result that omits the image. The size limit applies
+to the complete serialized JSON, including base64 and metadata; check broker and
+consumer limits (including MQTT overhead) before deployment.
 
 ## Topics
 
-Multi-source topic structure:
+All MQTT publications use configured topics:
 
-- Input: `yaic/input/<source_id>/image`
-- Output: `yaic/output/<source_id>/classification`
-- Last image: `yaic/image/<source_id>/last`
-- Event stream: `yaic/event/<source_id>`
-- Status: `yaic/status/<source_id>` (`online`/`offline` with retain)
-- Operation status: `yaic/status/<source_id>/operation` (JSON with status and timestamp)
-- Logs: `yaic/log` (JSON log records)
+- Input: `MQTT_TOPIC_IN`, with exactly one `+` segment for the source ID.
+- Classification: exactly `MQTT_TOPIC_OUT` (for example `yaic/output`).
+- Lifecycle status: `<MQTT_TOPIC_STATUS>/<source_id>` (`online`/`offline`, retained).
+- Operation status: `<MQTT_TOPIC_STATUS>/<source_id>/operation` (JSON).
+- Logs: exactly `MQTT_TOPIC_LOG` (JSON log records).
 
-Incoming payloads include `device`/`source_id`; outgoing payloads include `source_id`.
+The classification payload includes `source`, optional `device`, and the original
+validated `event_id` when supplied. Sources share the configured output topic.
+Reconnection restores `online` for known sources; graceful shutdown sends `offline`.
 
-## Home Assistant Blueprint
+JSON input also accepts `image_url` for generic HTTP(S) image retrieval. Sources
+that require authentication should supply image bytes/base64 or a suitable signed
+URL. YAIC does not forward Home Assistant credentials.
 
-Blueprint to snapshot a camera, publish it to YAIC, and send notifications:
+## Migration from Home Assistant integration
 
-- `blueprints/automation/yaic/yaic_person_camera_to_mqtt_notify.yaml`
-
-It snapshots the selected camera, base64 encodes the image, publishes to the YAIC
-input topic, and notifies selected targets.
-
-Example `notify_action` configuration:
-
-```yaml
-service: notify.mobile_app_pixel_7_pro
-data:
-  title: "{{ _notify_title }}"
-  message: "{{ _notify_message }}"
-  data:
-    image: "{{ _notify_image }}"
-```
-
-Event payload example:
-
-```json
-{
-  "event_type": "classified",
-  "label": "person",
-  "confidence": 0.93,
-  "person_count": 2,
-  "people": [
-    {
-      "age_group": "adult",
-      "gender": "male",
-      "appearance": "unknown",
-      "role": "courier"
-    }
-  ],
-  "timestamp": "2024-01-01T12:00:00+00:00"
-}
-```
+Home Assistant discovery, the bundled automation blueprint, retained last-image
+copies on `yaic/image/<source_id>/last`, and compatibility events on
+`yaic/event/<source_id>` have been removed. Consume classification JSON from
+`MQTT_TOPIC_OUT` and use its `source` and optional `event_id` fields.
+`HA_TOKEN` and `HA_DISCOVERY_ENABLED` are ignored and can be removed from deployment
+configuration. Existing retained discovery/image messages in your broker are not
+automatically deleted; remove them separately if no longer needed.
 
 ## People analytics
 
@@ -224,3 +215,46 @@ Tools for manual scenario testing are under `tools/`.
 ```
 
 The tool reads defaults from `.env` (`MQTT_HOST`, `MQTT_PORT`, `MQTT_TOPIC_IN`, `MQTT_TOPIC_OUT`).
+
+### Local intercom MQTT producer
+
+The standalone domofon app can publish events on `domofon/{source}/event` and
+nonretained JSON photos on `yaic/input/{source}/image`. Input accepts the existing
+binary image format or `{"image_b64":"...","device":"entrance","event_id":"..."}`.
+An optional validated `event_id` is copied to the classification result on
+`MQTT_TOPIC_OUT`; this correlates the result with the original intercom event.
+The source is extracted from the configured `MQTT_TOPIC_IN` mask, which must have
+one `+` segment (for example `yaic/input/+/image`). Custom isolated prefixes work.
+
+Photos from domofon are never retained. Configure an actual provider endpoint and
+vision model for the key; the default remains OpenRouter, so a key issued by a
+different provider cannot be tested against that default endpoint.
+
+Deploy YAIC through its existing Docker entry point, explicitly passing existing
+configuration read-only via `--env-file` rather than editing/sourcing secrets:
+
+```sh
+docker build -t ghcr.io/pastukhov/yaic:latest .
+docker run --rm --network host --env-file .env \
+  -e YAIC_LANGUAGE=ru \
+  ghcr.io/pastukhov/yaic:latest
+```
+
+Set `VLM_ENDPOINT` and `VLM_MODEL` in the deployment environment for your provider;
+keep the existing `VLM_API_KEY` out of command arguments and logs. No MQTT service is
+automatically started by the code changes. For private integration tests use a
+unique input/output/status/log prefix so existing production subscribers cannot
+consume test frames or duplicate inference. See the domofon README for capture
+service, credentials mounts, bounded queue and lifecycle details.
+
+For an isolated test environment with persistent mounted pip downloads and
+installed dependencies, run `./tools/test-in-container.sh`. Repeated runs reuse
+the same environment. See [cache location and dependency updates](tools/README.md#test-in-containersh).
+
+### Язык результата определения роли
+
+`YAIC_LANGUAGE` задаёт язык пользовательских текстов YAIC, в том числе
+`person.role` (например, `сосед` при `ru`). `person.role_code` сохраняет стабильный
+машинный код (`neighbor`). Автоматизации, сравнивающие роль с кодами из списка,
+должны использовать `role_code`. Telegram-шлюзу переводить роли не требуется.
+Эта настройка не переводит технические идентификаторы источников или метки API.

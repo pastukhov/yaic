@@ -186,3 +186,11 @@ def test_source_and_device_in_output():
 
     assert result.payload["source"] == "domofon"
     assert result.payload["device"] == "domofon"
+
+
+def test_role_display_language_comes_from_yaic_not_telegram():
+    face=FaceResult(identity=None, identity_confidence=None, identity_stage='embedding')
+    role=RoleResult(role='neighbor',role_confidence=.8,role_reason='Обычная одежда',role_name='сосед')
+    result=_make_processor(face_result=face,role_result=role).process_message(b'image','entrance')
+    assert result.payload['person']['role'] == 'сосед'
+    assert result.payload['person']['role_code'] == 'neighbor'

@@ -4,7 +4,9 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from .metrics import metrics
 
 if TYPE_CHECKING:
     from .face_recognition import FaceRecognizer
@@ -63,3 +65,8 @@ async def status() -> dict[str, Any]:
     loop = asyncio.get_event_loop()
     result: dict[str, Any] = await loop.run_in_executor(None, _face_recognizer.status)
     return result
+
+
+@app.get("/metrics", include_in_schema=False)
+def prometheus_metrics() -> Response:
+    return Response(generate_latest(metrics.registry), headers={"Content-Type": CONTENT_TYPE_LATEST})

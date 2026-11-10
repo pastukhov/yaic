@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from datetime import datetime, timezone
@@ -8,21 +9,20 @@ from typing import Any
 import paho.mqtt.client as mqtt
 
 from .config import Config
-from .ha_discovery import (
-    build_discovery_messages,
-    build_event_topic,
-    build_image_topic,
+from .mqtt_topics import (
     build_operation_status_topic,
     build_output_topic,
     build_status_topic,
 )
-from .processor import ProcessingResult, Processor
+from .processor import Processor
 
 logger = logging.getLogger(__name__)
 
 
 class MqttClient:
-    def __init__(self, config: Config, processor: Processor, sw_version: str) -> None:
+    def __init__(self, config: Config, processor: Processor, metrics=None) -> None:
+        from .metrics import metrics as default_metrics
+        self._metrics = metrics if metrics is not None else default_metrics
         self._config = config
         self._processor = processor
         self._client = mqtt.Client()
@@ -30,7 +30,6 @@ class MqttClient:
         self._client.on_message = self._on_message
         self._client.on_disconnect = self._on_disconnect
         self._client.reconnect_delay_set(min_delay=1, max_delay=30)
-        self._sw_version = sw_version
         self._known_sources: set[str] = set()
         self._log_handler: logging.Handler | None = None
 
@@ -49,17 +48,19 @@ class MqttClient:
         self._client.loop_stop()
 
     def _on_connect(self, client: mqtt.Client, userdata: Any, flags: dict[str, Any], rc: int) -> None:
+        self._metrics.mqtt_connected.set(int(rc == 0))
         if rc != 0:
             logger.error("MQTT connection failed with rc=%s", rc)
             return
         logger.info("MQTT connected; subscribing to %s", self._config.mqtt_topic_in)
         for source_id in sorted(self._known_sources):
-            self._publish_discovery(source_id)
+            self._publish_status(source_id, "online")
         client.subscribe(self._config.mqtt_topic_in, qos=1)
         status_prefix = self._config.mqtt_topic_status.rstrip("/")
         client.subscribe(f"{status_prefix}/+", qos=1)
 
     def _on_disconnect(self, client: mqtt.Client, userdata: Any, rc: int) -> None:
+        self._metrics.mqtt_connected.set(0)
         if rc != 0:
             logger.warning("MQTT disconnected unexpectedly (rc=%s)", rc)
         else:
@@ -86,9 +87,22 @@ class MqttClient:
             return
 
         try:
-            payload = json.dumps(result.payload, separators=(",", ":"))
+            output = {
+                **result.payload,
+                "image_b64": base64.b64encode(result.image_bytes).decode("ascii"),
+            }
+            payload = json.dumps(output, separators=(",", ":"))
         except (TypeError, ValueError):
             logger.exception("Failed to serialize output JSON for source=%s", source_id)
+            self._publish_operation_status(source_id, "error")
+            return
+
+        output_bytes = len(payload.encode("utf-8"))
+        if output_bytes > self._config.mqtt_max_output_bytes:
+            logger.error(
+                "Output too large for source=%s bytes=%d limit=%d",
+                source_id, output_bytes, self._config.mqtt_max_output_bytes,
+            )
             self._publish_operation_status(source_id, "error")
             return
 
@@ -101,29 +115,21 @@ class MqttClient:
             source_id, label, confidence, person_count, output_topic,
         )
 
-        client.publish(output_topic, payload=payload, qos=1)
-        client.publish(build_image_topic(source_id), payload=result.image_bytes, qos=1, retain=True)
-        client.publish(
-            build_event_topic(source_id),
-            payload=json.dumps(self._build_event_payload(result, source_id), separators=(",", ":")),
-            qos=1,
-        )
+        try:
+            info = self._publish("output", output_topic, payload=payload, qos=1, retain=False)
+        except Exception as exc:
+            # Exception messages can contain payload data; log only their type.
+            logger.error(
+                "Output publish raised for source=%s error_type=%s",
+                source_id, type(exc).__name__,
+            )
+            self._publish_operation_status(source_id, "error")
+            return
+        if info.rc != mqtt.MQTT_ERR_SUCCESS:
+            logger.error("Output publish failed for source=%s rc=%s", source_id, info.rc)
+            self._publish_operation_status(source_id, "error")
+            return
         self._publish_operation_status(source_id, "idle")
-
-    def _build_event_payload(self, result: ProcessingResult, source_id: str) -> dict[str, Any]:
-        person = result.payload.get("person", {})
-        payload = {
-            "event_type": "classified",
-            "source": source_id,
-            "label": result.payload.get("label", "unknown"),
-            "confidence": result.payload.get("confidence", 0.0),
-            "person_count": person.get("count", 0),
-            "people": [detail.to_payload() for detail in result.people],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        if result.payload.get("event_id") is not None:
-            payload["event_id"] = result.payload["event_id"]
-        return payload
 
     def _extract_source_id(self, topic: str) -> str | None:
         template = self._config.mqtt_topic_in.split("/")
@@ -157,33 +163,32 @@ class MqttClient:
         if source_id in self._known_sources:
             return
         self._known_sources.add(source_id)
-        self._publish_discovery(source_id)
         self._publish_status(source_id, "online")
 
-    def _publish_discovery(self, source_id: str) -> None:
-        messages = build_discovery_messages(self._config, self._sw_version, source_id)
-        for message in messages:
-            self._client.publish(
-                message.topic,
-                payload=json.dumps(message.payload, separators=(",", ":")),
-                qos=message.qos,
-                retain=message.retain,
-            )
-
     def _publish_status(self, source_id: str, status: str) -> None:
-        self._client.publish(build_status_topic(self._config, source_id), payload=status, qos=1, retain=True)
+        self._publish("status", build_status_topic(self._config, source_id), payload=status, qos=1, retain=True)
 
     def _publish_operation_status(self, source_id: str, status: str) -> None:
         payload = json.dumps(
             {"source": source_id, "status": status, "timestamp": datetime.now(timezone.utc).isoformat()},
             separators=(",", ":"),
         )
-        self._client.publish(build_operation_status_topic(self._config, source_id), payload=payload, qos=1)
+        self._publish("operation", build_operation_status_topic(self._config, source_id), payload=payload, qos=1)
+
+    def _publish(self, kind, *args, **kwargs):
+        try:
+            info = self._client.publish(*args, **kwargs)
+        except Exception:
+            self._metrics.publishes.labels(kind, 'error').inc()
+            raise
+        outcome = 'success' if info.rc == mqtt.MQTT_ERR_SUCCESS else 'error'
+        self._metrics.publishes.labels(kind, outcome).inc()
+        return info
 
     def _attach_log_handler(self) -> None:
         if self._log_handler is not None:
             return
-        self._log_handler = _MqttLogHandler(self._client, self._config.mqtt_topic_log)
+        self._log_handler = _MqttLogHandler(self._client, self._config.mqtt_topic_log, self._metrics)
         self._log_handler.setLevel(logging.DEBUG)
         logging.getLogger().addHandler(self._log_handler)
 
@@ -195,9 +200,11 @@ class MqttClient:
 
 
 class _MqttLogHandler(logging.Handler):
-    def __init__(self, client: mqtt.Client, topic: str) -> None:
+    def __init__(self, client: mqtt.Client, topic: str, metrics=None) -> None:
         super().__init__()
         self._client = client
+        from .metrics import metrics as default_metrics
+        self._metrics = metrics if metrics is not None else default_metrics
         self._topic = topic.rstrip("/")
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -210,10 +217,12 @@ class _MqttLogHandler(logging.Handler):
             }
             if record.exc_info:
                 payload["exception"] = self.formatException(record.exc_info)
-            self._client.publish(
+            info = self._client.publish(
                 self._topic,
                 payload=json.dumps(payload, separators=(",", ":")),
                 qos=1,
             )
+            outcome = "success" if info.rc == mqtt.MQTT_ERR_SUCCESS else "error"
+            self._metrics.publishes.labels("log", outcome).inc()
         except Exception:
-            pass
+            self._metrics.publishes.labels("log", "error").inc()

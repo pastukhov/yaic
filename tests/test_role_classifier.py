@@ -121,3 +121,18 @@ def test_role_result_fields():
     assert r.role == "postman"
     assert r.role_confidence == 0.75
     assert r.role_reason == "postal uniform"
+
+
+def test_russian_role_name_is_localized_in_yaic_and_code_is_stable():
+    clf, vlm = _make_classifier(language='ru')
+    vlm.classify_role.return_value = {'role':'neighbor', 'role_name':'neighbor', 'confidence':.8, 'reason':'Обычная одежда'}
+    result = clf.classify(b'image')
+    assert result.role == 'neighbor'
+    assert result.role_name == 'сосед'
+    assert 'role_name' in clf._build_prompt()
+
+
+def test_russian_failure_fallback_name_is_russian():
+    clf, vlm = _make_classifier(language='ru')
+    vlm.classify_role.side_effect = RuntimeError('failure')
+    assert clf.classify(b'image').role_name == 'незнакомец'

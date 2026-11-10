@@ -31,22 +31,14 @@ class ImageMessage(BaseModel):
         return self
 
 
-def get_http_headers_for_url(url: str, ha_token: str) -> dict:
-    if ha_token and (":8123" in url or "homeassistant" in url):
-        return {"Authorization": f"Bearer {ha_token}"}
-    return {}
-
-
-def fetch_image_bytes(msg: ImageMessage, ha_token: str = "", timeout: float = 5.0) -> bytes:
+def fetch_image_bytes(msg: ImageMessage, timeout: float = 5.0) -> bytes:
     if msg.image_b64:
         return base64.b64decode(msg.image_b64)
 
-    headers = get_http_headers_for_url(msg.image_url, ha_token)
     try:
         with httpx.Client() as client:
             response = client.get(
                 msg.image_url,
-                headers=headers,
                 timeout=timeout,
                 follow_redirects=True,
             )
@@ -67,18 +59,25 @@ class Processor:
     def __init__(
         self,
         vlm_client: VlmClient,
-        ha_token: str = "",
         face_recognizer: FaceRecognizer | None = None,
         role_classifier: RoleClassifier | None = None,
+        metrics=None,
     ) -> None:
+        from .metrics import metrics as default_metrics
+        self._metrics = metrics if metrics is not None else default_metrics
         self._qwen = vlm_client
-        self._ha_token = ha_token
         self._face_recognizer = face_recognizer
         self._role_classifier = role_classifier
 
     def process_message(self, payload: bytes, source_id: str) -> ProcessingResult:
-        image_bytes, device, event_id = self._extract_image(payload)
-        result = self._qwen.classify_image(image_bytes)
+        with self._metrics.stage("pipeline"):
+            return self._process_message(payload, source_id)
+
+    def _process_message(self, payload: bytes, source_id: str) -> ProcessingResult:
+        with self._metrics.stage("extract_image"):
+            image_bytes, device, event_id = self._extract_image(payload)
+        with self._metrics.stage("classification"):
+            result = self._qwen.classify_image(image_bytes)
 
         output = result.to_payload()
         output["source"] = source_id
@@ -88,19 +87,23 @@ class Processor:
             output["event_id"] = event_id
 
         if result.label == "person" and self._face_recognizer is not None:
-            face_result = self._face_recognizer.recognize(image_bytes)
+            with self._metrics.stage("face_recognition"):
+                face_result = self._face_recognizer.recognize(image_bytes)
             person: dict[str, Any] = output.setdefault("person", {})
             person["identity"] = face_result.identity
             person["identity_confidence"] = face_result.identity_confidence
             person["identity_stage"] = face_result.identity_stage
             person["role"] = None
+            person["role_code"] = None
             person["role_confidence"] = None
             person["role_reason"] = None
 
             if face_result.identity is None and self._role_classifier is not None:
                 try:
-                    role_result = self._role_classifier.classify(image_bytes)
-                    person["role"] = role_result.role
+                    with self._metrics.stage("role_classification"):
+                        role_result = self._role_classifier.classify(image_bytes)
+                    person["role"] = role_result.role_name or role_result.role
+                    person["role_code"] = role_result.role
                     person["role_confidence"] = role_result.role_confidence
                     person["role_reason"] = role_result.role_reason
                 except Exception:
@@ -122,5 +125,5 @@ class Processor:
             raise ValueError("JSON payload must be an object")
 
         msg = ImageMessage(**data)
-        image_bytes = fetch_image_bytes(msg, self._ha_token)
+        image_bytes = fetch_image_bytes(msg)
         return image_bytes, msg.device, msg.event_id

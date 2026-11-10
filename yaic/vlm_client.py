@@ -81,7 +81,10 @@ class VlmClient:
         timeout: float = 30.0,
         temperature: float = 0.7,
         max_retries: int = 3,
+        metrics=None,
     ) -> None:
+        from .metrics import metrics as default_metrics
+        self._metrics = metrics if metrics is not None else default_metrics
         self._api_key = api_key
         self._endpoint = endpoint
         self._language = language
@@ -99,12 +102,12 @@ class VlmClient:
 
         if result.label == "person" and not _has_person_details(data):
             detail_prompt = self._detail_prompt()
-            detail_data = self._post_image(image_bytes, prompt=detail_prompt)
+            detail_data = self._post_image(image_bytes, prompt=detail_prompt, operation="details")
             result = self._parse_result(detail_data, fallback=result)
 
         return result
 
-    def _post_image(self, image_bytes: bytes, prompt: str | None) -> dict[str, Any]:
+    def _post_image(self, image_bytes: bytes, prompt: str | None, operation: str = "classify") -> dict[str, Any]:
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         prompt_text = prompt or self._default_prompt()
         image_url = _image_data_url(image_bytes, image_b64)
@@ -137,7 +140,8 @@ class VlmClient:
                 }
                 payload["response_format"] = response_format
                 _log_debug_request(self._endpoint, headers, payload)
-                response = requests.post(
+                response = self._request(
+                    operation,
                     self._endpoint,
                     json=payload,
                     headers=headers,
@@ -162,7 +166,8 @@ class VlmClient:
                         ],
                     }
                     _log_debug_request(self._endpoint, headers, payload)
-                    response = requests.post(
+                    response = self._request(
+                        operation,
                         self._endpoint,
                         json=payload,
                         headers=headers,
@@ -331,12 +336,14 @@ class VlmClient:
                     "response_format": response_format,
                 }
                 _log_debug_request(self._endpoint, headers, payload)
-                response = requests.post(
+                response = self._request(
+                    "verify_identity",
                     self._endpoint, json=payload, headers=headers, timeout=self._timeout
                 )
                 if response.status_code == 400:
                     payload.pop("response_format", None)
-                    response = requests.post(
+                    response = self._request(
+                        "verify_identity",
                         self._endpoint, json=payload, headers=headers, timeout=self._timeout
                     )
                 _log_debug_response(response)
@@ -358,7 +365,26 @@ class VlmClient:
 
         Returns the raw parsed JSON dict from the VLM response.
         """
-        return self._post_image(image_bytes, prompt=prompt)
+        return self._post_image(image_bytes, prompt=prompt, operation="role")
+
+    def _request(self, operation, *args, **kwargs):
+        # Every HTTP response is accounted for before status/content handling.
+        with self._metrics.stage('vlm_' + operation) as observation:
+            try:
+                response = requests.post(*args, **kwargs)
+            except requests.RequestException:
+                self._metrics.calls.labels(operation, 'transport_error').inc()
+                raise
+            outcome = 'success' if response.status_code < 400 else 'http_error'
+            self._metrics.calls.labels(operation, outcome).inc()
+            if response.status_code >= 400:
+                observation['outcome'] = 'error'
+            try:
+                data = response.json()
+            except (ValueError, TypeError):
+                data = None
+            self._metrics.usage(data, self._model, operation)
+            return response
 
     def _extract_content_json(self, data: dict[str, Any]) -> dict[str, Any]:
         try:

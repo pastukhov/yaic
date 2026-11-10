@@ -24,4 +24,11 @@ RUN python -c "import insightface.app as isf_app; a = isf_app.FaceAnalysis(name=
 
 ENV PYTHONUNBUFFERED=1
 
+LABEL prometheus.io/scrape="true" \
+  prometheus.io/port="8080" \
+  prometheus.io/path="/metrics" \
+  prometheus.io/scheme="http"
+
+EXPOSE 8080
+
 CMD ["python", "-m", "yaic"]

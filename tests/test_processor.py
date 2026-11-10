@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from yaic.processor import Processor, ImageMessage, fetch_image_bytes, get_http_headers_for_url
+from yaic.processor import Processor, ImageMessage, fetch_image_bytes
 from yaic.vlm_client import ClassificationResult, PersonDetail, PersonSummary, UNKNOWN
 
 
@@ -129,19 +129,41 @@ def test_image_message_image_url_valid():
     assert msg.image_url == "http://ha.local:8123/local/img.jpg"
 
 
-def test_get_http_headers_ha_url():
-    headers = get_http_headers_for_url("http://homeassistant.local:8123/local/img.jpg", ha_token="mytoken")
-    assert headers == {"Authorization": "Bearer mytoken"}
+def test_legacy_ha_token_is_not_forwarded_to_image_url(monkeypatch):
+    import httpx
+    from yaic.config import load_config
+    from yaic.runtime import build_processor
 
+    monkeypatch.setenv("YAIC_LANGUAGE", "en")
+    monkeypatch.setenv("HA_TOKEN", "legacy-test-token")
+    monkeypatch.setenv("CHROMA_HOST", "")
+    vlm = DummyVlm(ClassificationResult(
+        label="cat", confidence=0.9,
+        person=PersonSummary(count=0, description=None, details=(),
+                             age_summary=None, gender_summary=None, role_summary=None),
+    ))
+    monkeypatch.setattr("yaic.runtime.VlmClient", lambda **kwargs: vlm)
+    requests = []
 
-def test_get_http_headers_no_token():
-    headers = get_http_headers_for_url("http://homeassistant.local:8123/local/img.jpg", ha_token="")
-    assert headers == {}
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200, content=b"downloaded-image")
 
+    client_type = httpx.Client
+    monkeypatch.setattr("yaic.processor.httpx.Client", lambda: client_type(
+        transport=httpx.MockTransport(respond)))
+    processor = build_processor(load_config(require_mqtt=False))
+    processed = processor.process_message(json.dumps({
+        "image_url": "http://homeassistant.local:8123/local/image.jpg",
+        "event_id": "evt-url-123",
+    }).encode(), "door")
 
-def test_get_http_headers_unrelated_url():
-    headers = get_http_headers_for_url("http://example.com/img.jpg", ha_token="mytoken")
-    assert headers == {}
+    assert len(requests) == 1
+    assert "authorization" not in requests[0].headers
+    assert vlm.last_image == b"downloaded-image"
+    assert processed.payload["label"] == "cat"
+    assert processed.payload["event_id"] == "evt-url-123"
+    assert processed.payload["source"] == "door"
 
 
 def test_process_image_url_payload():
@@ -183,7 +205,6 @@ def test_process_image_url_payload():
     assert processed.payload["source"] == "front_door"
     mock_client.get.assert_called_once_with(
         "http://ha.local:8123/local/shot.jpg",
-        headers={},
         timeout=5.0,
         follow_redirects=True,
     )

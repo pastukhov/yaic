@@ -68,3 +68,44 @@ poetry run python tools/e2e_photo_to_description.py \
   --source-id front-door \
   --dry-run
 ```
+
+## `test-in-container.sh`
+
+Run pytest in a disposable Python 3.12 container with persistent dependencies:
+
+```bash
+./tools/test-in-container.sh
+./tools/test-in-container.sh tests/test_mqtt_client.py -q
+./tools/tests/test-in-container_smoke.sh
+```
+
+The host directory `${XDG_CACHE_HOME:-$HOME/.cache}/yaic-tests` is bind-mounted
+at `/cache`. The container runs with the caller's UID/GID so pip can use
+the host-owned cache. It holds both the pip download cache (`pip/`) and installed virtual
+environments (`envs/`). A temporary snapshot of `yaic/`, `tests/`, `tools/` and build metadata is
+mounted read-only; `.env*`, `auth.json`, Git metadata and local environments are
+excluded. No `.env` file, broker,
+credentials, camera, or VLM configuration is passed to the container.
+
+The default `tools/Dockerfile.tests` builds a small Python 3.12 test image with
+native build/runtime libraries. Docker caches that OS layer between runs; it
+does not fetch face models.
+
+The first run resolves the package constraints in `pyproject.toml` and installs
+pytest 7.x. This helper does not claim a Poetry lockfile installation. Subsequent
+runs with unchanged dependency files and Python runtime reuse the installed
+virtual environment and skip pip entirely. Changes to `pyproject.toml`,
+`poetry.lock`, the helper, Python version or platform select a separate environment.
+Current source is copied from the checkout on every run, so source edits do not
+require reinstalling dependencies.
+
+Set `YAIC_TEST_REFRESH=1` for an explicit dependency refresh within the current
+constraints. If installation is interrupted, the environment is not marked ready
+and the next run retries using the existing pip cache. Override `YAIC_TEST_CACHE`
+with an absolute host path or `YAIC_TEST_IMAGE` with a compatible Python image.
+A custom image must provide any required native libraries and build tools. Cached files can be
+removed locally when no test run is active; they are never committed.
+
+To verify reuse, run the same command twice. The second prints
+`Reusing test dependencies from persistent mount (no pip install)` and directly
+starts pytest, without dependency downloads.

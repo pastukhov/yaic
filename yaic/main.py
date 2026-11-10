@@ -4,13 +4,9 @@ import json
 import logging
 import signal
 import threading
-from importlib.metadata import PackageNotFoundError, version
 
-from . import api
 from .config import load_config
-from .mqtt_client import MqttClient
-from .processor import Processor
-from .vlm_client import VlmClient
+from .runtime import build_processor
 
 
 class JsonFormatter(logging.Formatter):
@@ -26,60 +22,18 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, separators=(",", ":"))
 
 
-def _get_version() -> str:
-    try:
-        return version("yaic")
-    except PackageNotFoundError:
-        return "unknown"
-
-
-def main() -> None:
+def run_mqtt() -> None:
     config = load_config()
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
     logging.basicConfig(level=config.log_level, handlers=[handler])
 
-    vlm = VlmClient(
-        api_key=config.vlm_api_key,
-        endpoint=config.vlm_endpoint,
-        language=config.yaic_language,
-        model=config.vlm_model,
-        timeout=config.inference_timeout,
-        temperature=config.inference_temperature,
-    )
-
-    face_recognizer = None
-    role_classifier = None
-
-    if config.chroma_host:
-        from .face_recognition import FaceRecognizer
-        from .role_classifier import RoleClassifier
-
-        face_recognizer = FaceRecognizer(
-            chroma_host=config.chroma_host,
-            chroma_port=config.chroma_port,
-            faces_dir=config.faces_dir,
-            similarity_high=config.face_similarity_high,
-            similarity_low=config.face_similarity_low,
-            vlm_client=vlm,
-        )
-        if config.face_index_on_startup:
-            logging.getLogger(__name__).info("Building face index on startup")
-            face_recognizer.reindex()
-
-        if config.classify_stranger_role:
-            role_classifier = RoleClassifier(vlm, config.yaic_language)
-
-        api.set_face_recognizer(face_recognizer)
-        api.start_api_server(config.api_host, config.api_port)
-
-    processor = Processor(
-        vlm,
-        ha_token=config.ha_token,
-        face_recognizer=face_recognizer,
-        role_classifier=role_classifier,
-    )
-    client = MqttClient(config, processor, sw_version=_get_version())
+    from .mqtt_client import MqttClient
+    processor = build_processor(config)
+    from . import api
+    api.set_face_recognizer(processor._face_recognizer)
+    api.start_api_server(config.api_host, config.api_port)
+    client = MqttClient(config, processor)
 
     shutdown_event = threading.Event()
 
@@ -93,3 +47,55 @@ def main() -> None:
     client.start()
     shutdown_event.wait()
     client.stop()
+
+
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(description="YAIC image classifier")
+    commands = parser.add_subparsers(dest="command")
+    classify = commands.add_parser("classify", help="Classify one local image as JSON")
+    classify.add_argument("--image", required=True)
+    classify.add_argument("--source-id", required=True)
+    listen = commands.add_parser("listen-tuya", help="Read local Tuya events as JSONL")
+    listen.add_argument("--device-config", required=True)
+    listen.add_argument("--source-id", required=True)
+    listen.add_argument("--classify", action="store_true")
+    args = parser.parse_args(argv)
+    if args.command is None:
+        run_mqtt()
+        return
+    if args.command == "listen-tuya":
+        import os
+        from .tuya_source import TuyaSource
+        from .tuya_runner import TuyaRunner
+        try:
+            device_config = json.loads(Path(args.device_config).read_text())
+            source = TuyaSource(device_config, args.source_id)
+            processor = build_processor(load_config(require_mqtt=False)) if args.classify else None
+            from . import api
+            api.set_face_recognizer(processor._face_recognizer if processor else None)
+            api.start_api_server(os.getenv("API_HOST", "0.0.0.0"), int(os.getenv("API_PORT", "8080")))
+            stop = threading.Event()
+            previous = {}
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                previous[signum] = signal.signal(signum, lambda *_: stop.set())
+            try:
+                TuyaRunner(source, processor=processor, snapshot_url=os.getenv("YAIC_SNAPSHOT_URL")).run(stop)
+            finally:
+                for signum, handler in previous.items():
+                    signal.signal(signum, handler)
+        except Exception:
+            parser.exit(1, "Tuya listener failed; check external device and classifier configuration.\n")
+        return
+    try:
+        config = load_config(require_mqtt=False)
+        result = build_processor(config).process_message(Path(args.image).read_bytes(), args.source_id)
+        print(json.dumps(result.payload, separators=(",", ":")))
+    except Exception:
+        parser.exit(1, "Classification failed; check image and classifier configuration.\n")
+
+
+if __name__ == "__main__":
+    main()
